@@ -23,8 +23,9 @@ export const StatusChipNative: React.FC<StatusChipNativeProps> = ({
   let ViewComponent: any = 'div';
   let TextComponent: any = 'span';
   try {
+    const rnModule = 'react-native';
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const RN = require('react-native');
+    const RN = typeof require !== 'undefined' ? require(rnModule) : null;
     if (RN && RN.View && RN.Text) {
       ViewComponent = RN.View;
       TextComponent = RN.Text;

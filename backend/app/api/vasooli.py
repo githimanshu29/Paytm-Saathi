@@ -23,6 +23,8 @@ from app.schemas.vasooli import (
     RecordPaymentEventResponse,
     NegotiateSplitRequest,
     NegotiateSplitResponse,
+    CreateReceivableRequest,
+    CreateReceivableResponse,
 )
 
 vasooli_router = APIRouter(prefix="/merchant/vasooli", tags=["Vasooli (Receivables)"])
@@ -79,6 +81,75 @@ def get_merchant_vasooli_summary(
             for r in summary.receivables
         ],
     )
+
+
+@vasooli_router.post("/create", response_model=CreateReceivableResponse)
+def create_customer_receivable(
+    req: CreateReceivableRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Creates a new consensual store credit / udhaar record for a customer.
+    """
+    merchant_id = user.get("sub", "mer_sharma_kirana")
+    adapter = MockVasooliAdapter(db)
+
+    # Calculate amount in paise
+    if req.amount_paise is not None and req.amount_paise > 0:
+        amount_paise = req.amount_paise
+    elif req.amount_rupees is not None and req.amount_rupees > 0:
+        amount_paise = int(round(req.amount_rupees * 100))
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Amount must be greater than 0.",
+        )
+
+    if not req.customer_name or not req.customer_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Customer name is required.",
+        )
+
+    try:
+        r = adapter.create_receivable(
+            merchant_id=merchant_id,
+            customer_name=req.customer_name.strip(),
+            amount_paise=amount_paise,
+            customer_phone=req.customer_phone,
+            notes=req.notes,
+            due_days=req.due_days or 7,
+        )
+        return CreateReceivableResponse(
+            success=True,
+            receivable=ReceivableItemSchema(
+                id=r.id,
+                merchant_id=r.merchant_id,
+                customer_id=r.customer_id,
+                customer_name=r.customer_name,
+                customer_phone=r.customer_phone,
+                amount_paise=r.amount_paise,
+                amount_formatted=r.amount_formatted,
+                due_date=r.due_date,
+                status=r.status,
+                notes=r.notes,
+                is_disputed=r.is_disputed,
+                dispute_reason=r.dispute_reason,
+                reminder_count=r.reminder_count,
+                last_reminder_sent_at=r.last_reminder_sent_at,
+                paid_amount_paise=r.paid_amount_paise,
+                paid_amount_formatted=r.paid_amount_formatted,
+                settled_at=r.settled_at,
+                settlement_verification_status=r.settlement_verification_status,
+                payment_reference=r.payment_reference,
+                payment_link_url=r.payment_link_url,
+                negotiated_installments=r.negotiated_installments,
+            ),
+            message=f"Udhaar record of {r.amount_formatted} created successfully for {r.customer_name}.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @vasooli_router.post("/draft-reminder", response_model=ReminderDraftResponse)

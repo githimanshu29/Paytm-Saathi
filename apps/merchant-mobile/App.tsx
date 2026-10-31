@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -12,6 +12,8 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Animated,
+  Modal,
 } from 'react-native';
 import {
   colors,
@@ -276,6 +278,92 @@ export default function App() {
   const [demoToggleLoading, setDemoToggleLoading] = useState(false);
   const [activeCheckin, setActiveCheckin] = useState<ReviveCheckinCardData | null>(null);
   const [checkinResponding, setCheckinResponding] = useState(false);
+
+  // Option 1: Live Pulse Animation for Offline Soundbox
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const isOffline = summary?.device?.status === 'OFFLINE';
+    if (isOffline) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.25,
+            duration: 650,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 650,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [summary?.device?.status]);
+
+  // Option 2: Customer Udhaar Modal & Management
+  const [showAddUdhaarModal, setShowAddUdhaarModal] = useState(false);
+  const [udhaarCustomerName, setUdhaarCustomerName] = useState('');
+  const [udhaarCustomerPhone, setUdhaarCustomerPhone] = useState('');
+  const [udhaarAmount, setUdhaarAmount] = useState('');
+  const [udhaarNotes, setUdhaarNotes] = useState('');
+  const [udhaarDueDays, setUdhaarDueDays] = useState(7);
+  const [udhaarSaving, setUdhaarSaving] = useState(false);
+  const [udhaarFeedback, setUdhaarFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleCreateUdhaar = async () => {
+    if (!udhaarCustomerName.trim()) {
+      setUdhaarFeedback({ type: 'error', message: 'Kripya grahak ka naam likhein.' });
+      return;
+    }
+    const amt = parseFloat(udhaarAmount.trim());
+    if (isNaN(amt) || amt <= 0) {
+      setUdhaarFeedback({ type: 'error', message: 'Kripya sahi udhaar rashi (amount) dalein.' });
+      return;
+    }
+
+    setUdhaarSaving(true);
+    setUdhaarFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/merchant/vasooli/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+        body: JSON.stringify({
+          customer_name: udhaarCustomerName.trim(),
+          customer_phone: udhaarCustomerPhone.trim() || undefined,
+          amount_rupees: amt,
+          notes: udhaarNotes.trim() || 'Store Credit / Udhaar',
+          due_days: udhaarDueDays,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Udhaar save nahi ho paya.');
+      }
+
+      setUdhaarCustomerName('');
+      setUdhaarCustomerPhone('');
+      setUdhaarAmount('');
+      setUdhaarNotes('');
+      setUdhaarDueDays(7);
+      setShowAddUdhaarModal(false);
+      setUdhaarFeedback({ type: 'success', message: `✅ ${data.message || 'Udhaar record safaltapoorvak jud gaya!'}` });
+      await fetchSummary();
+    } catch (err: any) {
+      setUdhaarFeedback({ type: 'error', message: err.message || 'Udhaar save karne mein error aayi.' });
+    } finally {
+      setUdhaarSaving(false);
+    }
+  };
 
   // Onboard Agent & KYC Checklist state
   const [checklist, setChecklist] = useState<OnboardingChecklist | null>(null);
@@ -1061,10 +1149,37 @@ export default function App() {
                     {summary?.device?.device_type || 'Soundbox 4G Pro'} · S/N: {summary?.device?.serial_number || 'SB-JAI-101'}
                   </Text>
                 </View>
-                <StatusChipNative
-                  status={summary?.device?.chip_status || 'verified'}
-                  label={summary?.device?.status || 'ONLINE'}
-                />
+                {summary?.device?.status === 'OFFLINE' ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Animated.View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: '#DC2626',
+                        marginRight: 6,
+                        opacity: pulseAnim,
+                        transform: [
+                          {
+                            scale: pulseAnim.interpolate({
+                              inputRange: [0.25, 1],
+                              outputRange: [0.85, 1.4],
+                            }),
+                          },
+                        ],
+                      }}
+                    />
+                    <StatusChipNative
+                      status="needs_human"
+                      label="OFFLINE"
+                    />
+                  </View>
+                ) : (
+                  <StatusChipNative
+                    status={summary?.device?.chip_status || 'verified'}
+                    label={summary?.device?.status || 'ONLINE'}
+                  />
+                )}
               </View>
 
               <View style={styles.deviceMetricsRow}>
@@ -1087,6 +1202,53 @@ export default function App() {
                   </Text>
                 </View>
               </View>
+
+              {/* Offline Warning Banner & Go to Saathi Chat Shortcut */}
+              {summary?.device?.status === 'OFFLINE' ? (
+                <View style={styles.soundboxOfflineBanner}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                    <Animated.View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: '#DC2626',
+                        marginRight: 6,
+                        opacity: pulseAnim,
+                      }}
+                    />
+                    <Text style={styles.soundboxOfflineAlertTitle}>
+                      Live Alert: Soundbox Offline Hai
+                    </Text>
+                  </View>
+                  <Text style={styles.soundboxOfflineAlertText}>
+                    Heartbeat signal disconnect hai. Grahak ke payment ki audio bol nahi rahi.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.soundboxGoToChatBtn}
+                    onPress={() => {
+                      setActiveTab('CHAT');
+                      handleSendMessage('Soundbox SB-JAI-101 is not speaking chime, red light is on');
+                    }}
+                  >
+                    <Text style={styles.soundboxGoToChatBtnText}>
+                      💬 Go to Saathi Chat (Fix Audio & Book Technician) →
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.soundboxChatNormalBtn}
+                  onPress={() => {
+                    setActiveTab('CHAT');
+                    handleSendMessage('Soundbox status aur volume check karo');
+                  }}
+                >
+                  <Text style={styles.soundboxChatNormalBtnText}>
+                    💬 Go to Saathi Chat (Soundbox Health & Diagnostics)
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* Demo Toggle Button */}
               <TouchableOpacity
@@ -1162,10 +1324,21 @@ export default function App() {
                     {summary?.dues.pending_count || 1} pending customer receivable
                   </Text>
                 </View>
-                <StatusChipNative
-                  status={summary?.dues.chip_status || 'awaiting_approval'}
-                  label="Pending Reminder"
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <TouchableOpacity
+                    style={styles.addUdhaarHeaderBtn}
+                    onPress={() => {
+                      setUdhaarFeedback(null);
+                      setShowAddUdhaarModal(true);
+                    }}
+                  >
+                    <Text style={styles.addUdhaarHeaderBtnText}>+ Naya Udhaar</Text>
+                  </TouchableOpacity>
+                  <StatusChipNative
+                    status={summary?.dues.chip_status || 'awaiting_approval'}
+                    label="Pending Reminder"
+                  />
+                </View>
               </View>
 
               <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginVertical: 6 }}>
@@ -1234,17 +1407,55 @@ export default function App() {
                 )}
               </View>
 
-              <TouchableOpacity
-                style={{ marginTop: 12, backgroundColor: '#EFF6FF', borderRadius: 8, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: '#BFDBFE' }}
-                onPress={() => {
-                  setActiveTab('CHAT');
-                  handleSendMessage('Record udhaar of ₹250 for Vikram Singh');
-                }}
-              >
-                <Text style={{ color: '#1D4ED8', fontSize: 12, fontWeight: '700' }}>
-                  + Record Udhaar / Send Polite Reminder
-                </Text>
-              </TouchableOpacity>
+              {/* Feedback toast if any */}
+              {udhaarFeedback && (
+                <View
+                  style={[
+                    styles.udhaarFeedbackBanner,
+                    {
+                      backgroundColor: udhaarFeedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+                      borderColor: udhaarFeedback.type === 'success' ? '#A7F3D0' : '#FECACA',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: '600',
+                      color: udhaarFeedback.type === 'success' ? '#065F46' : '#991B1B',
+                    }}
+                  >
+                    {udhaarFeedback.message}
+                  </Text>
+                </View>
+              )}
+
+              {/* Action Buttons Row */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                <TouchableOpacity
+                  style={[styles.addUdhaarActionBtn, { flex: 1.2 }]}
+                  onPress={() => {
+                    setUdhaarFeedback(null);
+                    setShowAddUdhaarModal(true);
+                  }}
+                >
+                  <Text style={styles.addUdhaarActionBtnText}>
+                    + 📒 Naya Udhaar Jodein
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.vasooliChatActionBtn, { flex: 1 }]}
+                  onPress={() => {
+                    setActiveTab('CHAT');
+                    handleSendMessage('Show pending udhaar and draft gentle WhatsApp reminders');
+                  }}
+                >
+                  <Text style={styles.vasooliChatActionBtnText}>
+                    💬 WhatsApp Vasooli
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Pull-to-refresh tip */}
@@ -2363,6 +2574,139 @@ export default function App() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* MODAL: Naya Udhaar Jodein */}
+      <Modal
+        visible={showAddUdhaarModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddUdhaarModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>📒 Naya Udhaar Jodein</Text>
+                <Text style={styles.modalSubtitle}>Customer ka store credit hisab darj karein</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setShowAddUdhaarModal(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Error in modal if any */}
+            {udhaarFeedback?.type === 'error' && (
+              <View style={styles.modalErrorBox}>
+                <Text style={styles.modalErrorText}>{udhaarFeedback.message}</Text>
+              </View>
+            )}
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 10 }}>
+              {/* Field 1: Customer Name */}
+              <Text style={styles.inputLabel}>Grahak ka Naam (Customer Name) *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="jaise: Ramesh Kumar, Sharma Ji"
+                placeholderTextColor="#9CA3AF"
+                value={udhaarCustomerName}
+                onChangeText={setUdhaarCustomerName}
+              />
+
+              {/* Field 2: Phone Number */}
+              <Text style={styles.inputLabel}>Mobile Number (WhatsApp reminder ke liye)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="10-digit number (e.g. 9876543210)"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="phone-pad"
+                value={udhaarCustomerPhone}
+                onChangeText={setUdhaarCustomerPhone}
+                maxLength={10}
+              />
+
+              {/* Field 3: Amount */}
+              <Text style={styles.inputLabel}>Udhaar Rashi (Amount in ₹) *</Text>
+              <TextInput
+                style={[styles.modalInput, { fontSize: 18, fontWeight: '700', color: colors.paytmBlue }]}
+                placeholder="₹ 250"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="numeric"
+                value={udhaarAmount}
+                onChangeText={setUdhaarAmount}
+              />
+
+              {/* Field 4: Samaan / Notes */}
+              <Text style={styles.inputLabel}>Samaan / Item Details (Notes)</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="jaise: 5kg Aata, Dal, Tel (optional)"
+                placeholderTextColor="#9CA3AF"
+                value={udhaarNotes}
+                onChangeText={setUdhaarNotes}
+              />
+
+              {/* Field 5: Due Days Chips */}
+              <Text style={styles.inputLabel}>Chukane ki Tareekh (Due in)</Text>
+              <View style={styles.dueDaysRow}>
+                {[
+                  { days: 3, label: '3 Din' },
+                  { days: 7, label: '7 Din (1 Hafta)' },
+                  { days: 15, label: '15 Din' },
+                  { days: 30, label: '30 Din' },
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.days}
+                    style={[
+                      styles.dueDayChip,
+                      udhaarDueDays === item.days && styles.dueDayChipActive,
+                    ]}
+                    onPress={() => setUdhaarDueDays(item.days)}
+                  >
+                    <Text
+                      style={[
+                        styles.dueDayChipText,
+                        udhaarDueDays === item.days && styles.dueDayChipTextActive,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.modalActionsRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelBtn}
+                  onPress={() => setShowAddUdhaarModal(false)}
+                  disabled={udhaarSaving}
+                >
+                  <Text style={styles.modalCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalSubmitBtn}
+                  onPress={handleCreateUdhaar}
+                  disabled={udhaarSaving}
+                >
+                  {udhaarSaving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.modalSubmitBtnText}>💾 Khata Mein Jodein</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -3820,5 +4164,226 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  soundboxOfflineBanner: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: radii.card,
+    padding: 10,
+    marginTop: 10,
+  },
+  soundboxOfflineAlertTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#991B1B',
+  },
+  soundboxOfflineAlertText: {
+    fontSize: 11,
+    color: '#7F1D1D',
+    marginBottom: 8,
+    lineHeight: 15,
+  },
+  soundboxGoToChatBtn: {
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  soundboxGoToChatBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  soundboxChatNormalBtn: {
+    marginTop: 10,
+    backgroundColor: '#F0F9FF',
+    borderColor: '#BAE6FD',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  soundboxChatNormalBtnText: {
+    color: '#0284C7',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  addUdhaarHeaderBtn: {
+    backgroundColor: '#00BAF2',
+    borderRadius: radii.pill,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+  },
+  addUdhaarHeaderBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  addUdhaarActionBtn: {
+    backgroundColor: '#00BAF2',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  addUdhaarActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  vasooliChatActionBtn: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  vasooliChatActionBtnText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  udhaarFeedbackBanner: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 18,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    paddingBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  modalErrorBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 10,
+  },
+  modalErrorText: {
+    color: '#991B1B',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  modalInput: {
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#1F2937',
+  },
+  dueDaysRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  dueDayChip: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+  },
+  dueDayChipActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: colors.paytmBlue,
+  },
+  dueDayChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  dueDayChipTextActive: {
+    color: colors.paytmBlue,
+    fontWeight: '700',
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+  },
+  modalCancelBtnText: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalSubmitBtn: {
+    flex: 1.5,
+    backgroundColor: colors.paytmBlue,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

@@ -104,3 +104,19 @@ class NegotiateSplitResponse(BaseModel):
     splits: List[Dict[str, Any]]
     proposal_summary: str
     approval_id: Optional[str] = None
+
+
+class CreateReceivableRequest(BaseModel):
+    customer_name: str
+    customer_phone: Optional[str] = None
+    amount_rupees: Optional[float] = None
+    amount_paise: Optional[int] = None
+    notes: Optional[str] = None
+    due_days: Optional[int] = 7
+
+
+class CreateReceivableResponse(BaseModel):
+    success: bool
+    receivable: ReceivableItemSchema
+    message: str
+

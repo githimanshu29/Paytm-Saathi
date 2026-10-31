@@ -643,3 +643,70 @@ class MockVasooliAdapter:
             revoked_permission_count=revoked,
             receivables=records_list,
         )
+
+    def create_receivable(
+        self,
+        merchant_id: str,
+        customer_name: str,
+        amount_paise: int,
+        customer_phone: Optional[str] = None,
+        notes: Optional[str] = None,
+        due_days: int = 7,
+    ) -> ReceivableRecord:
+        """Creates a new consensual store credit (udhaar) record."""
+        from datetime import timedelta
+
+        clean_name = customer_name.strip()
+        phone = (customer_phone or "").strip()
+        if not phone:
+            phone = f"91{uuid.uuid4().int % 9000000000 + 1000000000}"
+
+        m = self.db.query(Merchant).filter(Merchant.id == merchant_id).first()
+        tenant_id = m.tenant_id if m else "ten_paytm_default"
+
+        cust = (
+            self.db.query(Customer)
+            .filter(Customer.merchant_id == merchant_id)
+            .filter((Customer.name == clean_name) | (Customer.phone == phone))
+            .first()
+        )
+        if not cust:
+            cust = Customer(
+                id=f"cust_{uuid.uuid4().hex[:10]}",
+                tenant_id=tenant_id,
+                merchant_id=merchant_id,
+                name=clean_name,
+                phone=phone,
+                contact_permission=True,
+                permission_status="ALLOWED",
+                is_synthetic=True,
+                created_at=datetime.now(timezone.utc),
+            )
+            self.db.add(cust)
+            self.db.flush()
+
+        due_date = datetime.now(timezone.utc) + timedelta(days=max(1, due_days))
+        rec_id = f"rec_{uuid.uuid4().hex[:10]}"
+
+        rec = Receivable(
+            id=rec_id,
+            tenant_id=tenant_id,
+            merchant_id=merchant_id,
+            customer_id=cust.id,
+            amount=amount_paise,
+            due_date=due_date,
+            status="PENDING",
+            notes=notes.strip() if notes else "Consensual store credit / Udhaar",
+            is_disputed=False,
+            reminder_count=0,
+            paid_amount=0,
+            settlement_verification_status="UNSETTLED",
+            payment_link_url=f"https://paytm.me/pay?r={rec_id}",
+            is_synthetic=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.db.add(rec)
+        self.db.commit()
+        self.db.refresh(rec)
+        return self.get_receivable(rec.id)
+

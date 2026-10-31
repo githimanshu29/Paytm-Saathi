@@ -11,6 +11,8 @@ backend/.venv/
 *.sqlite3
 *.db
 
+PROJECT_EXPLAINER.md
+
 # Build outputs
 dist/
 build/

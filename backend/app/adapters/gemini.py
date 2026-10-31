@@ -131,10 +131,10 @@ class GeminiAdapter:
     )
 
     CANDIDATE_MODELS = [
-        "gemini-2.5-flash",
+        "gemini-flash-lite-latest",
         "gemini-2.5-flash-lite",
-        "gemini-2.5-pro",
-        "gemini-3.1-flash-lite",
+        "gemini-flash-latest",
+        "gemini-2.5-flash",
     ]
 
     def __init__(self):

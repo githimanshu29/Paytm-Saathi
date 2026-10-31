@@ -15,6 +15,7 @@ PROJECT_EXPLAINER.md
 
 # Build outputs
 dist/
+!packages/design-tokens/dist/
 build/
 .expo/
 web-build/

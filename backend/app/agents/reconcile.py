@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
 from app.adapters.settlement import MockSettlementAdapter
+from app.adapters.gemini import gemini_adapter
 from app.tools.reconcile import ReconcileTools
 
 
@@ -256,11 +257,27 @@ class ReconcileAgent:
 
         final_state = self.graph.invoke(initial_state)
 
+        reply = final_state.get("agent_reply")
+        if gemini_adapter.is_available() and final_state.get("breakdown_card"):
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="ReconcileAgent",
+                branch=final_state.get("branch", ""),
+                ground_truth={
+                    "settlement_date": final_state.get("settlement_date"),
+                    "breakdown_card": final_state.get("breakdown_card"),
+                    "chip_status": final_state.get("chip_status"),
+                    "deterministic_reply": reply,
+                },
+                user_query=query_text,
+            )
+            if llm_exp and llm_exp.reply:
+                reply = llm_exp.reply
+
         return {
             "agent": "RECONCILE",
             "branch": final_state.get("branch"),
             "chip_status": final_state.get("chip_status"),
-            "agent_reply": final_state.get("agent_reply"),
+            "agent_reply": reply,
             "settlement_date": final_state.get("settlement_date"),
             "breakdown_card": final_state.get("breakdown_card"),
             "dispute_data": final_state.get("dispute_data"),

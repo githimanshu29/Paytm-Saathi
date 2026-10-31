@@ -14,7 +14,8 @@ from app.agents.revive import ReviveAgent
 from app.agents.onboard import OnboardAgent
 from app.agents.fieldmate import FieldMateAgent
 from app.agents.vasooli import VasooliAgent
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
+from app.adapters.gemini import gemini_adapter
 from app.policy.audit import audit_log
 from app.db.models import Merchant, Task, TaskBucket
 
@@ -113,7 +114,7 @@ class SaathiBrainOrchestrator:
         self.onboard_agent = OnboardAgent(db)
         self.fieldmate_agent = FieldMateAgent(db)
         self.vasooli_agent = VasooliAgent(db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.router_graph = self._build_router_graph()
 
     def _build_router_graph(self):
@@ -170,6 +171,12 @@ class SaathiBrainOrchestrator:
                     flagged_patterns=[pat],
                 )
 
+        # 3.5. Gemini Intelligent Intent Classifier (Zero-shot / Few-shot semantic understanding)
+        if gemini_adapter.is_available():
+            llm_result = gemini_adapter.classify_intent(query_text)
+            if llm_result and llm_result.route != AgentRoute.UNCLEAR:
+                return llm_result
+
         # 4. FieldMate (Sales Beat / Route Planner / Visits)
         fieldmate_keywords = [
             "fieldmate",
@@ -197,6 +204,9 @@ class SaathiBrainOrchestrator:
         # 5. Vasooli (Store Credit / Udhaar / Consensual Reminders)
         vasooli_keywords = [
             "udhaar",
+            "udhar",
+            "baki",
+            "baaki",
             "khata",
             "receivable",
             "receivables",
@@ -207,8 +217,14 @@ class SaathiBrainOrchestrator:
             "polite reminder",
             "bought on credit",
             "bought on udhaar",
+            "bought on udhar",
             "record udhaar",
+            "record udhar",
             "add udhaar",
+            "add udhar",
+            "dues",
+            "hisab",
+            "hisaab",
             "split payment",
             "installment",
         ]
@@ -422,7 +438,8 @@ class SaathiBrainOrchestrator:
                 query_text=query_text,
                 actor_id=actor_id,
             )
-            speech = self.speech_adapter.synthesize(res["agent_reply"], language="hi-IN")
+            speech_text = res.get("explanation_hi") or res["agent_reply"]
+            speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
                 "agent_result": {
@@ -475,7 +492,8 @@ class SaathiBrainOrchestrator:
                 query_text=query_text,
                 actor_id=actor_id,
             )
-            speech = self.speech_adapter.synthesize(res["agent_reply"], language="hi-IN")
+            speech_text = res.get("explanation_hi") or res["agent_reply"]
+            speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
                 "agent_result": {
@@ -499,7 +517,8 @@ class SaathiBrainOrchestrator:
                 merchant_id=merchant_id,
                 actor_id=actor_id,
             )
-            speech = self.speech_adapter.synthesize(res["agent_reply"], language="hi-IN")
+            speech_text = res.get("explanation_hi") or res["agent_reply"]
+            speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
                 "agent_result": {
@@ -525,7 +544,8 @@ class SaathiBrainOrchestrator:
                 query_text=query_text,
                 actor_id=actor_id,
             )
-            speech = self.speech_adapter.synthesize(res["agent_reply"], language="hi-IN")
+            speech_text = res.get("explanation_hi") or res["agent_reply"]
+            speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
                 "agent_result": {
@@ -577,7 +597,8 @@ class SaathiBrainOrchestrator:
                 merchant_id=merchant_id,
                 actor_id=actor_id,
             )
-            speech = self.speech_adapter.synthesize(res["agent_reply"], language="hi-IN")
+            speech_text = res.get("explanation_hi") or res["agent_reply"]
+            speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
                 "agent_result": {

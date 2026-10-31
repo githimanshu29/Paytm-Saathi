@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
 
 from app.tools.fieldmate import FieldMateTools
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
 
 
 class FieldMateAgentState(TypedDict):
@@ -43,7 +43,7 @@ class FieldMateAgent:
     def __init__(self, db: Session):
         self.db = db
         self.tools = FieldMateTools(db=db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.graph = self._build_graph()
 
     def _build_graph(self):

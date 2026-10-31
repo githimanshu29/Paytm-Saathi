@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours for demo
     DEMO_OTP: str = "123456"
 
+    # Sarvam AI Indic Speech & Language
+    SARVAM_API_KEY: str = ""
+    SARVAM_BASE_URL: str = "https://api.sarvam.ai"
+
+    # Google Gemini Models & Live Multi-modal
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_FALLBACK_MODEL: str = "gemini-3.8-flash"
+    GEMINI_LIVE_MODEL: str = "gemini-2.0-flash-exp"
+
     CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

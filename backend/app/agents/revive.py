@@ -4,7 +4,8 @@ from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
 
 from app.tools.revive import ReviveTools
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
+from app.adapters.gemini import gemini_adapter
 
 
 class ReviveAgentState(TypedDict):
@@ -32,7 +33,7 @@ class ReviveAgent:
     def __init__(self, db: Session):
         self.db = db
         self.tools = ReviveTools(db=db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -333,6 +334,22 @@ class ReviveAgent:
             "handed_off_to": card_data.get("handed_off_to") or fol_data.get("handed_off_to") or handoff_agent,
         }
 
+        reply = final_state.get("agent_reply")
+        if gemini_adapter.is_available() and final_state.get("checkin_card"):
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="ReviveAgent",
+                branch=branch or "REVIVE",
+                ground_truth={
+                    "diagnosed_cause": final_state.get("diagnosed_cause"),
+                    "checkin_card": final_state.get("checkin_card"),
+                    "metrics": final_state.get("metrics"),
+                    "deterministic_reply": reply,
+                },
+                user_query="Merchant sales volume inquiry",
+            )
+            if llm_exp and llm_exp.reply:
+                reply = llm_exp.reply
+
         return {
             "success": True,
             "agent": "REVIVE",
@@ -340,7 +357,7 @@ class ReviveAgent:
             "branch": branch,
             "chip_status": final_state.get("chip_status"),
             "diagnosed_cause": final_state.get("diagnosed_cause"),
-            "agent_reply": final_state.get("agent_reply"),
+            "agent_reply": reply,
             "checkin_card": final_state.get("checkin_card"),
             "followup_data": fol_data,
             "followup": followup_summary,

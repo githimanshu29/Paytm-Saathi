@@ -278,6 +278,52 @@ export default function App() {
   const [demoToggleLoading, setDemoToggleLoading] = useState(false);
   const [activeCheckin, setActiveCheckin] = useState<ReviveCheckinCardData | null>(null);
   const [checkinResponding, setCheckinResponding] = useState(false);
+  const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
+
+  const playSpeechAudio = (base64Audio?: string, msgId?: string) => {
+    if (!base64Audio) return;
+    try {
+      if (typeof window !== 'undefined') {
+        const audioSrc = base64Audio.startsWith('data:')
+          ? base64Audio
+          : `data:audio/wav;base64,${base64Audio}`;
+        const audio = new (window as any).Audio(audioSrc);
+        if (msgId) setPlayingMsgId(msgId);
+        audio.onended = () => {
+          if (msgId) setPlayingMsgId(null);
+        };
+        audio.onerror = () => {
+          if (msgId) setPlayingMsgId(null);
+        };
+        audio.play().catch((err: any) => {
+          console.warn('Audio playback prevented or failed:', err);
+          if (msgId) setPlayingMsgId(null);
+        });
+      }
+    } catch (e) {
+      console.error('Audio playback error:', e);
+      if (msgId) setPlayingMsgId(null);
+    }
+  };
+
+  // Auto-scroll ref for Chat Messages
+  const chatScrollRef = useRef<ScrollView>(null);
+
+  // Auto-scroll down to latest messages at bottom whenever tab is opened or new messages arrive
+  useEffect(() => {
+    if (activeTab === 'CHAT') {
+      const t1 = setTimeout(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: false });
+      }, 50);
+      const t2 = setTimeout(() => {
+        chatScrollRef.current?.scrollToEnd({ animated: true });
+      }, 250);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [activeTab, chatMessages.length]);
 
   // Option 1: Live Pulse Animation for Offline Soundbox
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -703,13 +749,41 @@ export default function App() {
     }
   };
 
-  // Voice Interaction Simulation
+  // Live Web Speech Recognition (Hindi / English voice-to-text)
   const handleTriggerVoiceSpeech = () => {
-    setVoiceActive(true);
-    setTimeout(() => {
+    if (typeof window !== 'undefined' && (('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window))) {
+      try {
+        const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const recognition = new SpeechRecognitionClass();
+        recognition.lang = 'hi-IN';
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        setVoiceActive(true);
+        recognition.onstart = () => {
+          setVoiceActive(true);
+        };
+        recognition.onresult = (event: any) => {
+          setVoiceActive(false);
+          const transcript = event?.results?.[0]?.[0]?.transcript;
+          if (transcript && transcript.trim()) {
+            handleSendMessage(transcript.trim());
+          }
+        };
+        recognition.onerror = (_err: any) => {
+          setVoiceActive(false);
+        };
+        recognition.onend = () => {
+          setVoiceActive(false);
+        };
+        recognition.start();
+      } catch (_e) {
+        setVoiceActive(false);
+      }
+    } else {
+      // Fallback: If browser does not support mic API, just do nothing or toggle active state
       setVoiceActive(false);
-      handleSendMessage('Soundbox light is red and not speaking payment chime');
-    }, 1500);
+    }
   };
 
   // Chat: Handle merchant decision on inline approval card
@@ -1448,17 +1522,16 @@ export default function App() {
             <Text style={styles.pullHintText}>Pull down to refresh live telemetry from backend</Text>
           </ScrollView>
 
-          {/* Floating Mic FAB -> Opens Chat Tab in Voice Mode */}
+          {/* Floating Mic FAB -> Opens Chat Tab */}
           <TouchableOpacity
             style={styles.micFab}
             activeOpacity={0.88}
             onPress={() => {
               setActiveTab('CHAT');
-              handleTriggerVoiceSpeech();
             }}
           >
-            <Text style={styles.micIcon}>🎙</Text>
-            <Text style={styles.micText}>Talk to Saathi (Voice)</Text>
+            <Text style={styles.micIcon}>💬</Text>
+            <Text style={styles.micText}>Open Saathi Chat</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1577,9 +1650,13 @@ export default function App() {
 
           {/* Chat Messages Stream */}
           <ScrollView
+            ref={chatScrollRef}
             style={styles.chatMessageStream}
             contentContainerStyle={styles.chatStreamContent}
             showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => {
+              chatScrollRef.current?.scrollToEnd({ animated: true });
+            }}
           >
             {chatMessages.map((msg) => {
               const isSaathi = msg.sender === 'saathi';
@@ -1633,13 +1710,27 @@ export default function App() {
                       {msg.text}
                     </Text>
 
-                    {/* Voice Audio Synthesized Pill */}
+                    {/* Voice Audio Synthesized Pill with Interactive Playback */}
                     {isSaathi && msg.speech_audio_base64 && (
-                      <View style={styles.voicePill}>
-                        <Text style={styles.voicePillText}>
-                          🔊 Indic Speech Synthesized ({msg.speech_duration_seconds || 3.2}s)
+                      <TouchableOpacity
+                        style={[
+                          styles.voicePill,
+                          playingMsgId === msg.id && { backgroundColor: '#E0F2FE', borderColor: '#0284C7' },
+                        ]}
+                        onPress={() => playSpeechAudio(msg.speech_audio_base64, msg.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.voicePillText,
+                            playingMsgId === msg.id && { color: '#0369A1', fontWeight: '700' },
+                          ]}
+                        >
+                          {playingMsgId === msg.id
+                            ? '🔊 Sun rahe hain...'
+                            : `▶ 🔊 Suniye (Audio ${msg.speech_duration_seconds ? msg.speech_duration_seconds + 's' : ''})`}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
                     )}
 
                     {/* Bilingual Hindi Explanation Card */}

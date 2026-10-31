@@ -18,7 +18,7 @@ from app.api.auth import get_current_user
 from app.policy.audit import audit_log
 from app.agents.orchestrator import SaathiBrainOrchestrator
 from app.adapters.device import MockDeviceAdapter
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
 from app.schemas.merchant import (
     MerchantSummaryResponse,
     DeviceSummary,
@@ -273,7 +273,7 @@ def send_voice_chat(
     db: Session = Depends(get_db),
 ):
     merchant_id = user.get("sub", "mer_sharma_kirana")
-    speech_adapter = MockSpeechAdapter()
+    speech_adapter = get_speech_adapter()
 
     # Transcribe speech
     transcript = req.transcript

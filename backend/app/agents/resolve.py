@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
 from app.adapters.transaction import MockTransactionAdapter
 from app.tools.resolve import ResolveTools
+from app.adapters.gemini import gemini_adapter
 from app.policy.audit import audit_log
 from app.schemas.policy import RiskTier
 
@@ -290,11 +291,32 @@ class ResolveAgent:
             idempotency_key=execution_id,
         )
 
+        reply = final_state.get("agent_reply")
+        exp_hi = final_state.get("explanation_hi")
+        exp_en = final_state.get("explanation_en")
+
+        if gemini_adapter.is_available() and final_state.get("branch") not in ("GREETING", "UNKNOWN", "NOT_FOUND"):
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="ResolveAgent",
+                branch=final_state.get("branch", ""),
+                ground_truth={
+                    "tx_ref": final_state.get("tx_ref"),
+                    "chip_status": final_state.get("chip_status"),
+                    "deterministic_summary": reply,
+                    "explanation_hi": exp_hi,
+                },
+                user_query=query_text,
+            )
+            if llm_exp and llm_exp.reply:
+                reply = llm_exp.reply
+                if llm_exp.explanation_hi:
+                    exp_hi = llm_exp.explanation_hi
+
         return {
             "branch": final_state.get("branch"),
-            "agent_reply": final_state.get("agent_reply"),
-            "explanation_en": final_state.get("explanation_en"),
-            "explanation_hi": final_state.get("explanation_hi"),
+            "agent_reply": reply,
+            "explanation_en": exp_en,
+            "explanation_hi": exp_hi,
             "chip_status": final_state.get("chip_status"),
             "tx_ref": final_state.get("tx_ref"),
             "approval_card": final_state.get("approval_card"),

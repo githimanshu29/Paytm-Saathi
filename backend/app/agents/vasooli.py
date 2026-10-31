@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Customer, Receivable, ActionApproval, ApprovalDecision, Task, TaskBucket
 from app.tools.vasooli import VasooliTools
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
+from app.adapters.gemini import gemini_adapter
 
 
 class VasooliAgentState(TypedDict):
@@ -51,7 +52,7 @@ class VasooliAgent:
     def __init__(self, db: Session):
         self.db = db
         self.tools = VasooliTools(db=db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -511,4 +512,24 @@ class VasooliAgent:
             "refusal_reason": None,
             "error": None,
         }
-        return self.graph.invoke(initial_state)
+        res = self.graph.invoke(initial_state)
+        reply = res.get("agent_reply")
+        if gemini_adapter.is_available() and not res.get("refusal_reason") and not res.get("error"):
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="VasooliAgent",
+                branch=res.get("action_type", ""),
+                ground_truth={
+                    "customer_name": res.get("customer_name"),
+                    "amount_paise": res.get("amount_paise"),
+                    "action_card": res.get("action_card") or res.get("approval_card"),
+                    "chip_status": res.get("chip_status"),
+                    "deterministic_reply": reply,
+                },
+                user_query=query_text,
+            )
+            if llm_exp and llm_exp.reply:
+                if reply and "Recorded store credit (Udhaar)" in reply:
+                    res["agent_reply"] = f"{reply}\n\n{llm_exp.reply}"
+                else:
+                    res["agent_reply"] = llm_exp.reply
+        return res

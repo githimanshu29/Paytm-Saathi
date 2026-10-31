@@ -15,8 +15,16 @@ from app.adapters.device import (
 from app.adapters.speech import (
     ISpeechAdapter,
     MockSpeechAdapter,
+    SarvamSpeechAdapter,
+    get_speech_adapter,
     SpeechTranscriptionResult,
     SpeechSynthesisResult,
+)
+from app.adapters.gemini import (
+    GeminiAdapter,
+    gemini_adapter,
+    LLMRouteClassification,
+    LLMExplanationResult,
 )
 from app.adapters.settlement import (
     ISettlementAdapter,

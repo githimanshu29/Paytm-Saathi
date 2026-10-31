@@ -4,7 +4,8 @@ from typing import Any, Dict, List, Optional, TypedDict
 from sqlalchemy.orm import Session
 from langgraph.graph import StateGraph, END
 from app.adapters.device import MockDeviceAdapter
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
+from app.adapters.gemini import gemini_adapter
 from app.tools.fix import FixTools
 from app.core.clockwork import clockwork
 from app.policy.audit import audit_log
@@ -40,7 +41,7 @@ class FixAgent:
     def __init__(self, db: Session):
         self.db = db
         self.adapter = MockDeviceAdapter(db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.tools = FixTools(self.adapter, db)
         self.graph = self._build_graph()
 
@@ -274,8 +275,24 @@ class FixAgent:
         # Run through LangGraph
         final_state = self.graph.invoke(initial_state)
 
-        # Synthesize voice output via swappable SpeechAdapter
         agent_reply = final_state.get("agent_reply", "")
+        if gemini_adapter.is_available() and final_state.get("step") != "IDENTIFY":
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="FixAgent",
+                branch=final_state.get("step", ""),
+                ground_truth={
+                    "device": final_state.get("device_data"),
+                    "diagnostics": final_state.get("diagnostics"),
+                    "technician_booked": final_state.get("technician_booked"),
+                    "technician_slot": final_state.get("technician_slot"),
+                    "deterministic_reply": agent_reply,
+                },
+                user_query=query_text,
+            )
+            if llm_exp and llm_exp.reply:
+                agent_reply = llm_exp.reply
+
+        # Synthesize voice output via swappable SpeechAdapter
         speech_res = self.speech_adapter.synthesize(agent_reply, language="hi-IN")
 
         # Record top-level audit event

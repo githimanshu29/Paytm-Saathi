@@ -4,7 +4,8 @@ from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
 
 from app.tools.onboard import OnboardTools
-from app.adapters.speech import MockSpeechAdapter
+from app.adapters.speech import get_speech_adapter
+from app.adapters.gemini import gemini_adapter
 
 
 class OnboardAgentState(TypedDict):
@@ -35,7 +36,7 @@ class OnboardAgent:
     def __init__(self, db: Session):
         self.db = db
         self.tools = OnboardTools(db=db)
-        self.speech_adapter = MockSpeechAdapter()
+        self.speech_adapter = get_speech_adapter()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -264,13 +265,29 @@ class OnboardAgent:
 
         final_state = self.graph.invoke(initial_state)
 
+        reply = final_state.get("agent_reply")
+        if gemini_adapter.is_available() and not final_state.get("is_security_violation"):
+            llm_exp = gemini_adapter.generate_explanation(
+                agent_name="OnboardAgent",
+                branch=final_state.get("action_taken", ""),
+                ground_truth={
+                    "action_taken": final_state.get("action_taken"),
+                    "chip_status": final_state.get("chip_status"),
+                    "missing_item_card": final_state.get("missing_item_card"),
+                    "deterministic_reply": reply,
+                },
+                user_query=query_text,
+            )
+            if llm_exp and llm_exp.reply:
+                reply = llm_exp.reply
+
         return {
             "success": True,
             "agent": "ONBOARD",
             "merchant_id": merchant_id,
             "action_taken": final_state.get("action_taken"),
             "chip_status": final_state.get("chip_status"),
-            "agent_reply": final_state.get("agent_reply"),
+            "agent_reply": reply,
             "missing_item_card": final_state.get("missing_item_card"),
             "checklist": final_state.get("checklist"),
             "verification_result": final_state.get("verification_result"),

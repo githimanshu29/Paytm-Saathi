@@ -327,6 +327,9 @@ class SaathiBrainOrchestrator:
             "failed payment",
             "payment stuck",
             "transaction stuck",
+            "payment of",
+            "stuck",
+            "failed",
             "deducted",
             "amount deducted",
             "reversal",
@@ -334,9 +337,24 @@ class SaathiBrainOrchestrator:
             "utr",
             "upi deduction",
             "refund review",
+            "deepak",
+            "alok",
+            "pooja",
+            "fas gaya",
+            "atak gaya",
+            "kat gaya",
+            "kat gaye",
+            "paise kat",
+            "paisa kat",
+            "dispute",
         ]
+        has_payment_and_issue = (
+            "payment" in text or "transaction" in text or "upi" in text or "rupaye" in text or "rs" in text or "₹" in text
+        ) and (
+            "stuck" in text or "fail" in text or "deduct" in text or "pending" in text or "kat" in text or "fas" in text or "hold" in text
+        )
         has_paytm_tx = bool(re.search(r"PAYTM_[A-Z0-9_]+", query_text, re.IGNORECASE))
-        if any(k in text for k in payment_keywords) or has_paytm_tx:
+        if any(k in text for k in payment_keywords) or has_payment_and_issue or has_paytm_tx:
             return RouteClassificationResult(
                 route=AgentRoute.RESOLVE,
                 confidence=0.96,

@@ -404,6 +404,24 @@ export function App() {
   ];
 
   const filteredCases = cases.filter((c) => {
+    if (activeTab === 'fix') {
+      const isFix =
+        c.title.toLowerCase().includes('soundbox') ||
+        c.title.toLowerCase().includes('technician') ||
+        c.title.toLowerCase().includes('device') ||
+        c.title.toLowerCase().includes('hardware');
+      if (bucketFilter === 'ALL') return isFix;
+      return isFix && c.bucket === bucketFilter;
+    }
+    if (activeTab === 'resolve') {
+      const isResolve =
+        c.title.toLowerCase().includes('payment') ||
+        c.title.toLowerCase().includes('refund') ||
+        c.title.toLowerCase().includes('utr') ||
+        c.title.toLowerCase().includes('transaction');
+      if (bucketFilter === 'ALL') return isResolve;
+      return isResolve && c.bucket === bucketFilter;
+    }
     if (bucketFilter === 'ALL') return true;
     return c.bucket === bucketFilter;
   });

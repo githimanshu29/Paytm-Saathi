@@ -169,17 +169,21 @@ def get_case_timeline(
             detail=f"Case with ID {case_id} not found.",
         )
 
-    # Query audit events related to this task, its merchant, or target
+    filters = [
+        (AuditEvent.target == case_id),
+        (AuditEvent.target == task.merchant_id),
+        (AuditEvent.actor == task.merchant_id),
+        (AuditEvent.idempotency_key.like(f"%{case_id}%")),
+    ]
+    if getattr(task, "device_id", None):
+        filters.append(AuditEvent.target == task.device_id)
+
+    from sqlalchemy import or_
     events_query = (
         db.query(AuditEvent)
-        .filter(
-            (AuditEvent.target == case_id)
-            | (AuditEvent.target == task.merchant_id)
-            | (AuditEvent.actor == task.merchant_id)
-            | (AuditEvent.idempotency_key.like(f"%{case_id}%"))
-        )
+        .filter(or_(*filters))
         .order_by(AuditEvent.created_at.asc())
-        .limit(20)
+        .limit(25)
         .all()
     )
 

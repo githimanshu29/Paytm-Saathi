@@ -1,12 +1,10 @@
-import os
 import sys
+import os
 from datetime import datetime, timedelta, timezone
 
-# Ensure backend root is on sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.db.session import SessionLocal
-from app.core.security import hash_password
 from app.db.models import (
     Tenant,
     Merchant,
@@ -22,72 +20,49 @@ from app.db.models import (
     ApprovalDecision,
     AuditEvent,
 )
+from app.core.security import hash_password
 
 def seed_demo_data():
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
-        # Check if tenant exists
+
+        # 1. Tenant
         tenant = db.query(Tenant).filter_by(id="tenant_paytm_demo").first()
         if not tenant:
             tenant = Tenant(
                 id="tenant_paytm_demo",
-                name="Paytm Retail India",
+                name="Paytm Saathi Demo Tenant",
             )
             db.add(tenant)
             db.flush()
 
-        # Seed Employees with bcrypt hashed password: Demo@1234
-        default_pwd_hash = hash_password("Demo@1234")
+        # 2. Employees (Multiple Roles)
         employees_data = [
-            {
-                "id": "emp_support_01",
-                "email": "support@paytm.demo",
-                "hashed_password": default_pwd_hash,
-                "name": "Rajesh Sharma",
-                "role": EmployeeRole.SUPPORT_AGENT,
-            },
-            {
-                "id": "emp_manager_01",
-                "email": "manager@paytm.demo",
-                "hashed_password": default_pwd_hash,
-                "name": "Pooja Malhotra",
-                "role": EmployeeRole.MANAGER,
-            },
-            {
-                "id": "emp_sales_01",
-                "email": "sales@paytm.demo",
-                "hashed_password": default_pwd_hash,
-                "name": "Amit Verma",
-                "role": EmployeeRole.SALES_REP,
-            },
-            {
-                "id": "emp_admin_01",
-                "email": "admin@paytm.demo",
-                "hashed_password": default_pwd_hash,
-                "name": "Sunita Rao",
-                "role": EmployeeRole.ADMIN,
-            },
+            ("emp_support_01", "support@paytm.demo", "Rajesh Sharma", EmployeeRole.SUPPORT_AGENT),
+            ("emp_manager_01", "manager@paytm.demo", "Pooja Malhotra", EmployeeRole.MANAGER),
+            ("emp_sales_01", "sales@paytm.demo", "Amit Verma", EmployeeRole.SALES_REP),
+            ("emp_admin_01", "admin@paytm.demo", "Vikram Batra", EmployeeRole.ADMIN),
         ]
 
-        for emp in employees_data:
-            existing = db.query(Employee).filter_by(id=emp["id"]).first()
+        for emp_id, email, name, role in employees_data:
+            existing = db.query(Employee).filter_by(email=email).first()
             if not existing:
                 db.add(
                     Employee(
-                        id=emp["id"],
+                        id=emp_id,
                         tenant_id=tenant.id,
-                        email=emp["email"],
-                        hashed_password=emp["hashed_password"],
-                        name=emp["name"],
-                        role=emp["role"],
+                        email=email,
+                        name=name,
+                        role=role,
+                        hashed_password=hash_password("Demo@1234"),
                         is_synthetic=True,
                         environment="DEMO",
                     )
                 )
-        db.flush()
 
-        # Merchant 1: Ramesh Sharma - Healthy Kirana store with active Soundbox & Udhaar
+        # 3. Merchants & Devices
+        # Merchant 1: Sharma Kirana Store (Jaipur) - Active, Online Soundbox
         m1 = db.query(Merchant).filter_by(id="mer_sharma_kirana").first()
         if not m1:
             m1 = Merchant(
@@ -106,7 +81,7 @@ def seed_demo_data():
             db.add(m1)
             db.flush()
 
-            # Device
+            # Device: Online Soundbox with fresh telemetry
             db.add(
                 Device(
                     id="dev_soundbox_101",
@@ -117,6 +92,11 @@ def seed_demo_data():
                     sim_number="8991001234567890",
                     battery_level=88,
                     status="ONLINE",
+                    last_heartbeat=now - timedelta(minutes=2),
+                    signal_strength_dbm=-65,
+                    firmware_version="v3.4.1",
+                    reboot_in_progress=False,
+                    technician_visit_booked=False,
                     is_synthetic=True,
                     environment="DEMO",
                 )
@@ -163,7 +143,7 @@ def seed_demo_data():
                 )
             )
 
-            # --- Phase 4 Scenario Transactions for Resolve Agent ---
+            # Scenario Transactions for Resolve Agent
             # (a) Auto-reversal in progress (NPCI U30: expected timeline T+2 / 24-48 hrs)
             db.add(
                 Transaction(
@@ -307,7 +287,7 @@ def seed_demo_data():
             )
             db.add(t_executed)
 
-        # Merchant 2: Suresh Verma (Kanpur)
+        # Merchant 2: Suresh Verma (Kanpur) - Degraded Soundbox 2.0 (Low Battery & Weak Signal)
         m2 = db.query(Merchant).filter_by(id="mer_verma_sweets").first()
         if not m2:
             m2 = Merchant(
@@ -336,6 +316,11 @@ def seed_demo_data():
                     sim_number="8991009876543210",
                     battery_level=12,
                     status="ERROR",
+                    last_heartbeat=now - timedelta(hours=4),
+                    signal_strength_dbm=-98,
+                    firmware_version="v2.1.0",
+                    reboot_in_progress=False,
+                    technician_visit_booked=False,
                     is_synthetic=True,
                     environment="DEMO",
                 )
@@ -366,6 +351,7 @@ def seed_demo_data():
                 id="task_verma_001",
                 tenant_id=tenant.id,
                 merchant_id=m2.id,
+                device_id="dev_soundbox_202",
                 title="Soundbox network SIM reset and technician visit dispatch",
                 description="Device offline due to cell tower handover fault. Proposing OTA SIM refresh.",
                 bucket=TaskBucket.AWAITING_APPROVAL,
@@ -393,7 +379,7 @@ def seed_demo_data():
                 )
             )
 
-        # Merchant 3: Neha Gupta (Delhi)
+        # Merchant 3: Neha Gupta (Delhi) - Offline Device stuck in firmware boot loop
         m3 = db.query(Merchant).filter_by(id="mer_gupta_electronics").first()
         if not m3:
             m3 = Merchant(
@@ -412,6 +398,26 @@ def seed_demo_data():
             db.add(m3)
             db.flush()
 
+            db.add(
+                Device(
+                    id="dev_soundbox_404",
+                    tenant_id=tenant.id,
+                    merchant_id=m3.id,
+                    device_type="Soundbox 4G Pro",
+                    serial_number="SB-DEL-404",
+                    sim_number="8991007788990011",
+                    battery_level=76,
+                    status="OFFLINE",
+                    last_heartbeat=now - timedelta(hours=2),
+                    signal_strength_dbm=-85,
+                    firmware_version="v3.4.0",
+                    reboot_in_progress=False,
+                    technician_visit_booked=False,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
             # Task: Needs human
             t_needs_human = Task(
                 id="task_gupta_001",
@@ -427,7 +433,7 @@ def seed_demo_data():
             )
             db.add(t_needs_human)
 
-        # Merchant 4: Dinesh Yadav (Lucknow)
+        # Merchant 4: Dinesh Yadav (Lucknow) - Dormant & Discharged Soundbox 3.0
         m4 = db.query(Merchant).filter_by(id="mer_laxmi_dairy").first()
         if not m4:
             m4 = Merchant(
@@ -456,6 +462,11 @@ def seed_demo_data():
                     sim_number="8991005544332211",
                     battery_level=5,
                     status="OFFLINE",
+                    last_heartbeat=now - timedelta(days=22),
+                    signal_strength_dbm=-115,
+                    firmware_version="v3.0.2",
+                    reboot_in_progress=False,
+                    technician_visit_booked=False,
                     is_synthetic=True,
                     environment="DEMO",
                 )
@@ -487,6 +498,7 @@ def seed_demo_data():
                 id="task_laxmi_001",
                 tenant_id=tenant.id,
                 merchant_id=m4.id,
+                device_id="dev_soundbox_303",
                 title="Evaluate merchant dormant recovery outreach",
                 description="Zero transactions in last 21 days. Soundbox discharged. Field visit candidate.",
                 bucket=TaskBucket.PENDING,
@@ -505,7 +517,7 @@ def seed_demo_data():
             action="SEED_DEMO_DATA",
             target="database_tables",
             policy_decision_id="dec_system_seed",
-            idempotency_key="idemp_seed_20261029",
+            idempotency_key="idemp_seed_phase5",
             result="SUCCESS",
             is_synthetic=True,
             environment="DEMO",
@@ -513,7 +525,7 @@ def seed_demo_data():
         db.add(audit_event)
 
         db.commit()
-        print("Demo data successfully seeded with Phase 4 scenario transactions.")
+        print("Demo data successfully seeded with Phase 5 device telemetry.")
     except Exception as e:
         db.rollback()
         print(f"Error seeding demo data: {e}")

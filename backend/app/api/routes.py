@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.policy.audit import audit_log
 from app.schemas.common import HealthResponse
+from app.schemas.merchant import DeviceToggleResponse
+from app.adapters.device import MockDeviceAdapter
 from app.core.config import settings
 from app.api.auth import auth_router
 from app.api.merchant import merchant_router
@@ -30,4 +33,43 @@ def health_check(db: Session = Depends(get_db)):
         service=settings.PROJECT_NAME,
         environment=settings.ENVIRONMENT,
         audit_event_id=event.id,
+    )
+
+@api_router.post("/demo/device/{device_ref}/toggle", response_model=DeviceToggleResponse)
+def demo_toggle_device(
+    device_ref: str,
+    target_status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Demo Toggle: Flips a device between ONLINE and OFFLINE for test execution and live demo.
+    """
+    adapter = MockDeviceAdapter(db)
+    dev = adapter.get_device_by_serial(device_ref)
+    if not dev:
+        dev = adapter.get_device_by_id(device_ref)
+    if not dev:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_ref} not found.",
+        )
+
+    new_st = target_status.upper() if target_status else ("OFFLINE" if dev.status == "ONLINE" else "ONLINE")
+    adapter.flip_device_status(dev.serial_number, new_st)
+
+    audit_log(
+        db=db,
+        actor="demo_operator",
+        action="DEMO_DEVICE_STATUS_TOGGLED",
+        target=dev.serial_number,
+        result=new_st,
+        policy_decision_id="dec_demo_toggle_public",
+    )
+
+    return DeviceToggleResponse(
+        success=True,
+        device_id=dev.id,
+        serial_number=dev.serial_number,
+        new_status=new_st,
+        message=f"Soundbox {dev.serial_number} status flipped to {new_st} (Demo Toggle).",
     )

@@ -16,7 +16,9 @@ from app.db.models import (
 )
 from app.api.auth import get_current_user
 from app.policy.audit import audit_log
-from app.agents.resolve import ResolveAgent
+from app.agents.orchestrator import SaathiBrainOrchestrator
+from app.adapters.device import MockDeviceAdapter
+from app.adapters.speech import MockSpeechAdapter
 from app.schemas.merchant import (
     MerchantSummaryResponse,
     DeviceSummary,
@@ -26,9 +28,11 @@ from app.schemas.merchant import (
     ReceivableItem,
     ChatMessageRequest,
     ChatMessageResponse,
+    VoiceChatRequest,
     ApprovalCardData,
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
+    DeviceToggleResponse,
 )
 
 merchant_router = APIRouter(prefix="/merchant", tags=["Merchant Operations"])
@@ -88,12 +92,17 @@ def get_merchant_summary(
     device_row = db.query(Device).filter_by(merchant_id=merchant.id).first()
     device_summary: Optional[DeviceSummary] = None
     if device_row:
+        hb_str = device_row.last_heartbeat.strftime("%I:%M %p") if device_row.last_heartbeat else "Just now"
         device_summary = DeviceSummary(
             device_type=device_row.device_type,
             serial_number=device_row.serial_number,
             battery_level=device_row.battery_level,
             status=device_row.status,
             chip_status=map_device_status_to_chip(device_row.status),
+            last_heartbeat=hb_str,
+            signal_strength_dbm=device_row.signal_strength_dbm or -70,
+            technician_visit_booked=device_row.technician_visit_booked,
+            technician_slot=device_row.technician_slot,
         )
 
     # 2. Payments & Transactions Summary
@@ -188,21 +197,25 @@ def send_chat_message(
 ):
     merchant_id = user.get("sub", "mer_sharma_kirana")
     
-    # Audit incoming merchant message
+    # Audit incoming message
     audit_log(
         db=db,
         actor=merchant_id,
         action="MERCHANT_CHAT_MESSAGE_RECEIVED",
         target="saathi_brain_orchestrator",
         result="RECEIVED",
-        policy_decision_id="dec_chat_resolve_route",
+        policy_decision_id="dec_chat_orchestrator_route",
     )
 
-    # Invoke Phase 4 Resolve Specialist Agent
-    agent = ResolveAgent(db)
-    result = agent.run(
+    # Route via SaathiBrainOrchestrator to Resolve or Fix
+    merchant = db.query(Merchant).filter_by(id=merchant_id).first()
+    city = merchant.city if merchant else "Jaipur"
+
+    orchestrator = SaathiBrainOrchestrator(db)
+    result = orchestrator.route_and_run(
         merchant_id=merchant_id,
         query_text=req.message,
+        city=city,
         actor_id=merchant_id,
     )
 
@@ -211,16 +224,82 @@ def send_chat_message(
         approval_card_data = ApprovalCardData(**result["approval_card"])
 
     return ChatMessageResponse(
-        reply=result["agent_reply"],
+        reply=result["reply"],
         sender="saathi",
         timestamp=datetime.now(timezone.utc).strftime("%I:%M %p"),
+        agent=result.get("agent", "ORCHESTRATOR"),
         branch=result.get("branch"),
+        step=result.get("step"),
         chip_status=result.get("chip_status"),
         explanation_en=result.get("explanation_en"),
         explanation_hi=result.get("explanation_hi"),
         tx_ref=result.get("tx_ref"),
         case_id=result.get("case_id"),
+        technician_booked=result.get("technician_booked", False),
+        technician_slot=result.get("technician_slot"),
+        action_card=result.get("action_card"),
         approval_card=approval_card_data,
+        speech_audio_base64=result.get("speech_audio_base64"),
+        speech_duration_seconds=result.get("speech_duration_seconds"),
+        is_synthetic=True,
+    )
+
+@merchant_router.post("/voice/chat", response_model=ChatMessageResponse)
+def send_voice_chat(
+    req: VoiceChatRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    merchant_id = user.get("sub", "mer_sharma_kirana")
+    speech_adapter = MockSpeechAdapter()
+
+    # Transcribe speech
+    transcript = req.transcript
+    if not transcript and req.audio_base64:
+        import base64
+        try:
+            raw_audio = base64.b64decode(req.audio_base64)
+            tr_res = speech_adapter.transcribe(raw_audio, language_hint=req.language)
+            transcript = tr_res.text
+        except Exception:
+            transcript = "Soundbox not working"
+
+    if not transcript:
+        transcript = "Soundbox light is red and silent"
+
+    merchant = db.query(Merchant).filter_by(id=merchant_id).first()
+    city = merchant.city if merchant else "Jaipur"
+
+    orchestrator = SaathiBrainOrchestrator(db)
+    result = orchestrator.route_and_run(
+        merchant_id=merchant_id,
+        query_text=transcript,
+        city=city,
+        actor_id=merchant_id,
+    )
+
+    approval_card_data = None
+    if result.get("approval_card"):
+        approval_card_data = ApprovalCardData(**result["approval_card"])
+
+    return ChatMessageResponse(
+        reply=result["reply"],
+        sender="saathi",
+        timestamp=datetime.now(timezone.utc).strftime("%I:%M %p"),
+        agent=result.get("agent", "ORCHESTRATOR"),
+        branch=result.get("branch"),
+        step=result.get("step"),
+        chip_status=result.get("chip_status"),
+        explanation_en=result.get("explanation_en"),
+        explanation_hi=result.get("explanation_hi"),
+        tx_ref=result.get("tx_ref"),
+        case_id=result.get("case_id"),
+        technician_booked=result.get("technician_booked", False),
+        technician_slot=result.get("technician_slot"),
+        action_card=result.get("action_card"),
+        approval_card=approval_card_data,
+        speech_audio_base64=result.get("speech_audio_base64"),
+        speech_duration_seconds=result.get("speech_duration_seconds"),
         is_synthetic=True,
     )
 
@@ -281,4 +360,48 @@ def decide_approval(
         decision=decision_norm,
         chip_status=chip_status,
         message=f"Action successfully {decision_norm.lower()} by merchant.",
+    )
+
+@merchant_router.post("/device/{device_ref}/toggle-status", response_model=DeviceToggleResponse)
+def toggle_device_status(
+    device_ref: str,
+    target_status: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Demo Toggle: Flips a device between ONLINE and OFFLINE / ERROR for test and live demonstration.
+    """
+    merchant_id = user.get("sub", "mer_sharma_kirana")
+    adapter = MockDeviceAdapter(db)
+    dev = adapter.get_device_by_serial(device_ref)
+    if not dev:
+        dev = adapter.get_device_by_id(device_ref)
+    if not dev:
+        dev = adapter.get_device_by_merchant(merchant_id)
+
+    if not dev:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device {device_ref} not found.",
+        )
+
+    new_st = target_status.upper() if target_status else ("OFFLINE" if dev.status == "ONLINE" else "ONLINE")
+    adapter.flip_device_status(dev.serial_number, new_st)
+
+    audit_log(
+        db=db,
+        actor=merchant_id,
+        action="DEMO_DEVICE_STATUS_TOGGLED",
+        target=dev.serial_number,
+        result=new_st,
+        policy_decision_id="dec_demo_toggle",
+    )
+
+    return DeviceToggleResponse(
+        success=True,
+        device_id=dev.id,
+        serial_number=dev.serial_number,
+        new_status=new_st,
+        message=f"Soundbox {dev.serial_number} status flipped to {new_st} (Demo Toggle).",
     )

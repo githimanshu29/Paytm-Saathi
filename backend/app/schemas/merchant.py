@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class DeviceSummary(BaseModel):
@@ -7,6 +7,10 @@ class DeviceSummary(BaseModel):
     battery_level: int
     status: str
     chip_status: str  # verified | executed | pending | awaiting_approval | needs_human
+    last_heartbeat: Optional[str] = None
+    signal_strength_dbm: Optional[int] = -70
+    technician_visit_booked: bool = False
+    technician_slot: Optional[str] = None
 
 class TransactionItem(BaseModel):
     id: str
@@ -54,6 +58,11 @@ class MerchantSummaryResponse(BaseModel):
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
 
+class VoiceChatRequest(BaseModel):
+    audio_base64: Optional[str] = None
+    transcript: Optional[str] = None
+    language: str = "hi-IN"
+
 class ApprovalCardData(BaseModel):
     type: str
     task_id: str
@@ -70,13 +79,20 @@ class ChatMessageResponse(BaseModel):
     reply: str
     sender: str = "saathi"
     timestamp: str
+    agent: Optional[str] = "ORCHESTRATOR"
     branch: Optional[str] = None
+    step: Optional[str] = None
     chip_status: Optional[str] = None
     explanation_en: Optional[str] = None
     explanation_hi: Optional[str] = None
     tx_ref: Optional[str] = None
     case_id: Optional[str] = None
+    technician_booked: Optional[bool] = False
+    technician_slot: Optional[str] = None
+    action_card: Optional[Dict[str, Any]] = None
     approval_card: Optional[ApprovalCardData] = None
+    speech_audio_base64: Optional[str] = None
+    speech_duration_seconds: Optional[float] = None
     is_synthetic: bool = True
 
 class ApprovalDecisionRequest(BaseModel):
@@ -88,4 +104,11 @@ class ApprovalDecisionResponse(BaseModel):
     task_id: str
     decision: str
     chip_status: str
+    message: str
+
+class DeviceToggleResponse(BaseModel):
+    success: bool
+    device_id: str
+    serial_number: str
+    new_status: str
     message: str

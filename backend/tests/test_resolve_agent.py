@@ -58,6 +58,13 @@ def test_resolve_branch_a_autoreversal(db):
 
 # 2. Branch B: Reversal stuck (U69, >48h) -> creates review task & approval card
 def test_resolve_branch_b_stuck_reversal_creates_review_task(db):
+    # Clean up any existing task for PAYTM_STUCK_881920 to ensure test isolation
+    existing_tasks = db.query(Task).filter(Task.title.like("%PAYTM_STUCK_881920%")).all()
+    for et in existing_tasks:
+        db.query(ActionApproval).filter_by(task_id=et.id).delete()
+        db.delete(et)
+    db.commit()
+
     agent = ResolveAgent(db)
     result = agent.run(
         merchant_id="mer_sharma_kirana",

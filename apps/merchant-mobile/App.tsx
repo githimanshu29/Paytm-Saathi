@@ -42,6 +42,10 @@ interface DeviceSummary {
   battery_level: number;
   status: string;
   chip_status: StatusType;
+  last_heartbeat?: string;
+  signal_strength_dbm?: number;
+  technician_visit_booked?: boolean;
+  technician_slot?: string;
 }
 
 interface TransactionItem {
@@ -105,17 +109,33 @@ interface ApprovalCardData {
   status: string;
 }
 
+interface ActionCardData {
+  type: string;
+  task_id?: string;
+  serial_number: string;
+  slot?: string;
+  battery_level?: number;
+  assigned_to?: string;
+  action?: string;
+  status: string;
+}
+
 interface ChatMessage {
   id: string;
   sender: 'user' | 'saathi';
   text: string;
   timestamp: string;
+  agent?: string; // RESOLVE | FIX | ORCHESTRATOR
   branch?: string;
+  step?: string;
   chip_status?: StatusType;
   explanation_en?: string;
   explanation_hi?: string;
   approval_card?: ApprovalCardData | null;
+  action_card?: ActionCardData | null;
   approval_decided?: 'APPROVED' | 'REJECTED';
+  speech_audio_base64?: string;
+  speech_duration_seconds?: number;
 }
 
 export default function App() {
@@ -137,19 +157,22 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
 
-  // Chat tab state
+  // Chat & Voice tab state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: 'msg_welcome',
       sender: 'saathi',
-      text: 'Namaste! I am Saathi, your Kirana AI teammate. I actively investigate payment disputes, failed transfers, and Soundbox status. What can I check for you?',
+      text: 'Namaste! I am Saathi, your Kirana AI teammate. I can resolve payment disputes, verify auto-reversals, or troubleshoot your Soundbox voice announcements. What can I check for you?',
       timestamp: '10:00 AM',
       chip_status: 'verified',
+      agent: 'ORCHESTRATOR',
     },
   ]);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
   const [approvalSubmittingId, setApprovalSubmittingId] = useState<string | null>(null);
+  const [demoToggleLoading, setDemoToggleLoading] = useState(false);
 
   // Load saved token on mount
   useEffect(() => {
@@ -296,7 +319,7 @@ export default function App() {
     } catch (_e) {}
   };
 
-  // Chat: Send message to Python backend (invoking Resolve Agent)
+  // Chat: Send message to Python backend (invoking Orchestrator -> Resolve / Fix)
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || chatInput).trim();
     if (!text || !token) return;
@@ -330,11 +353,16 @@ export default function App() {
         sender: 'saathi',
         text: data.reply,
         timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        agent: data.agent,
         branch: data.branch,
+        step: data.step,
         chip_status: (data.chip_status as StatusType) || 'verified',
         explanation_en: data.explanation_en,
         explanation_hi: data.explanation_hi,
         approval_card: data.approval_card,
+        action_card: data.action_card,
+        speech_audio_base64: data.speech_audio_base64,
+        speech_duration_seconds: data.speech_duration_seconds,
       };
 
       setChatMessages((prev) => [...prev, saathiMsg]);
@@ -350,6 +378,15 @@ export default function App() {
     } finally {
       setChatSending(false);
     }
+  };
+
+  // Voice Interaction Simulation
+  const handleTriggerVoiceSpeech = () => {
+    setVoiceActive(true);
+    setTimeout(() => {
+      setVoiceActive(false);
+      handleSendMessage('Soundbox light is red and not speaking payment chime');
+    }, 1500);
   };
 
   // Chat: Handle merchant decision on inline approval card
@@ -383,6 +420,26 @@ export default function App() {
     } catch (_e) {
     } finally {
       setApprovalSubmittingId(null);
+    }
+  };
+
+  // Demo Toggle: Flips Soundbox status on demand
+  const handleDemoToggle = async () => {
+    if (!token) return;
+    setDemoToggleLoading(true);
+    try {
+      const serial = summary?.device?.serial_number || 'SB-JAI-101';
+      const res = await fetch(`${API_BASE_URL}/demo/device/${serial}/toggle`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await fetchSummary();
+        handleSendMessage(`Soundbox status toggled to ${data.new_status}. Please recheck.`);
+      }
+    } catch (_e) {
+    } finally {
+      setDemoToggleLoading(false);
     }
   };
 
@@ -539,7 +596,7 @@ export default function App() {
           <View>
             <Text style={styles.summaryLabel}>TODAY'S COLLECTION</Text>
             <Text style={styles.summaryValue}>
-              {summary?.payments.today_total_formatted || '₹600.00'}
+              {summary?.payments.today_total_formatted || '₹920.00'}
             </Text>
           </View>
           <View style={styles.summaryDivider} />
@@ -613,14 +670,33 @@ export default function App() {
                   </Text>
                 </View>
                 <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>Speaker</Text>
-                  <Text style={styles.metricValue}>Loud & Clear</Text>
+                  <Text style={styles.metricLabel}>Last Heartbeat</Text>
+                  <Text style={styles.metricValue}>
+                    {summary?.device?.last_heartbeat || '2m ago'}
+                  </Text>
                 </View>
                 <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>SIM Network</Text>
-                  <Text style={styles.metricValue}>Airtel 4G</Text>
+                  <Text style={styles.metricLabel}>4G Signal</Text>
+                  <Text style={styles.metricValue}>
+                    {summary?.device?.signal_strength_dbm ? `${summary.device.signal_strength_dbm} dBm` : '-65 dBm'}
+                  </Text>
                 </View>
               </View>
+
+              {/* Demo Toggle Button */}
+              <TouchableOpacity
+                style={styles.demoToggleBtn}
+                onPress={handleDemoToggle}
+                disabled={demoToggleLoading}
+              >
+                {demoToggleLoading ? (
+                  <ActivityIndicator size="small" color={colors.paytmBlue} />
+                ) : (
+                  <Text style={styles.demoToggleBtnText}>
+                    🔄 Toggle Soundbox State (Demo: {summary?.device?.status === 'ONLINE' ? 'Force Offline' : 'Set Online'})
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
 
             {/* CARD 2: Payments & Recent Collections */}
@@ -629,7 +705,7 @@ export default function App() {
                 <View>
                   <Text style={styles.cardTitle}>Today's Payments</Text>
                   <Text style={styles.cardSubtitle}>
-                    {summary?.payments.today_count || 2} successful UPI transactions
+                    {summary?.payments.today_count || 3} successful UPI transactions
                   </Text>
                 </View>
                 <StatusChipNative
@@ -639,7 +715,7 @@ export default function App() {
               </View>
 
               <Text style={styles.collectionsBigAmount}>
-                {summary?.payments.today_total_formatted || '₹600.00'}
+                {summary?.payments.today_total_formatted || '₹920.00'}
               </Text>
 
               {/* Transactions List */}
@@ -711,19 +787,22 @@ export default function App() {
             <Text style={styles.pullHintText}>Pull down to refresh live telemetry from backend</Text>
           </ScrollView>
 
-          {/* Floating Mic FAB -> Opens Chat Tab */}
+          {/* Floating Mic FAB -> Opens Chat Tab in Voice Mode */}
           <TouchableOpacity
             style={styles.micFab}
             activeOpacity={0.88}
-            onPress={() => setActiveTab('CHAT')}
+            onPress={() => {
+              setActiveTab('CHAT');
+              handleTriggerVoiceSpeech();
+            }}
           >
             <Text style={styles.micIcon}>🎙</Text>
-            <Text style={styles.micText}>Talk to Saathi</Text>
+            <Text style={styles.micText}>Talk to Saathi (Voice)</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* TAB 2: SAATHI CHAT TAB (Resolve Specialist Agent Enabled) */}
+      {/* TAB 2: SAATHI CHAT TAB (Resolve + Fix Specialist Agents Enabled) */}
       {activeTab === 'CHAT' && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -738,38 +817,51 @@ export default function App() {
               <Text style={styles.chatBackText}>← Home</Text>
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
-              <Text style={styles.chatHeaderTitle}>Saathi Assistant</Text>
-              <Text style={styles.chatHeaderSubtitle}>Resolve Agent · Switch Connected</Text>
+              <Text style={styles.chatHeaderTitle}>Saathi Multi-Agent</Text>
+              <Text style={styles.chatHeaderSubtitle}>Resolve (Payments) & Fix (Soundbox Voice)</Text>
             </View>
             <StatusChipNative status="verified" size="sm" label="Active" />
           </View>
+
+          {/* Voice Indicator Banner when Active */}
+          {voiceActive && (
+            <View style={styles.voiceListeningBanner}>
+              <Text style={styles.voiceListeningText}>🎙 Listening via SpeechAdapter (Indic Voice)...</Text>
+            </View>
+          )}
 
           {/* Scenario Quick-Test Chips */}
           <View style={styles.quickChipsBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsScroll}>
               <TouchableOpacity
                 style={styles.quickChip}
+                onPress={() => handleSendMessage('Soundbox light is red and not announcing payments')}
+              >
+                <Text style={styles.quickChipText}>🔊 Soundbox Red / Silent (Fix Agent)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Restart Soundbox SB-JAI-101 remotely')}
+              >
+                <Text style={styles.quickChipText}>⚡ Remote Restart & Recheck (Fix)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Soundbox still red after restart, book technician')}
+              >
+                <Text style={styles.quickChipText}>🛠 Book Technician Visit (Fix)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
                 onPress={() => handleSendMessage('Check customer Alok ₹250 auto-reversal')}
               >
-                <Text style={styles.quickChipText}>⚡ ₹250 Auto-Reversal (Branch A)</Text>
+                <Text style={styles.quickChipText}>💸 ₹250 Auto-Reversal (Resolve)</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.quickChip}
                 onPress={() => handleSendMessage('Deepak Verma ₹500 stuck reversal need refund review')}
               >
-                <Text style={styles.quickChipText}>⏱ ₹500 Stuck Reversal (Branch B)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickChip}
-                onPress={() => handleSendMessage('Customer Pooja ₹320 chime not heard confirm status')}
-              >
-                <Text style={styles.quickChipText}>✅ ₹320 Confirmed (Branch C)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickChip}
-                onPress={() => handleSendMessage('Suspicious unknown payment ₹1200 potential fraud')}
-              >
-                <Text style={styles.quickChipText}>🛡 ₹1,200 Security Escalation (Branch D)</Text>
+                <Text style={styles.quickChipText}>⏱ ₹500 Stuck Refund (Resolve)</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -803,7 +895,13 @@ export default function App() {
                           status={msg.chip_status}
                           size="sm"
                           label={
-                            msg.branch === 'A_AUTO_REVERSAL'
+                            msg.agent === 'FIX'
+                              ? msg.step === 'TECHNICIAN_DISPATCHED'
+                                ? 'Technician Booked'
+                                : msg.step === 'LOW_BATTERY_CHARGING'
+                                ? 'Low Battery'
+                                : 'Fix Agent'
+                              : msg.branch === 'A_AUTO_REVERSAL'
                               ? 'Auto-Reversing'
                               : msg.branch === 'B_STUCK_REFUND_REVIEW'
                               ? 'Refund Review'
@@ -826,11 +924,51 @@ export default function App() {
                       {msg.text}
                     </Text>
 
+                    {/* Voice Audio Synthesized Pill */}
+                    {isSaathi && msg.speech_audio_base64 && (
+                      <View style={styles.voicePill}>
+                        <Text style={styles.voicePillText}>
+                          🔊 Indic Speech Synthesized ({msg.speech_duration_seconds || 3.2}s)
+                        </Text>
+                      </View>
+                    )}
+
                     {/* Bilingual Hindi Explanation Card */}
                     {isSaathi && msg.explanation_hi && (
                       <View style={styles.hindiExplanationCard}>
                         <Text style={styles.hindiLabel}>🇮🇳 ग्राहक के लिए संदेश (HINDI)</Text>
                         <Text style={styles.hindiText}>{msg.explanation_hi}</Text>
+                      </View>
+                    )}
+
+                    {/* Action Card: Technician Visit Booked (Fix Agent) */}
+                    {isSaathi && msg.action_card?.type === 'TECHNICIAN_VISIT_BOOKED' && (
+                      <View style={styles.techCardContainer}>
+                        <View style={styles.techCardHeader}>
+                          <Text style={styles.techCardTitle}>🛠 Technician Visit Scheduled</Text>
+                          <StatusChipNative status="needs_human" size="sm" label="Visit Confirmed" />
+                        </View>
+                        <Text style={styles.techCardSlotText}>
+                          Slot: <strong>{msg.action_card.slot}</strong>
+                        </Text>
+                        <Text style={styles.techCardMetaText}>
+                          Soundbox: {msg.action_card.serial_number} · Case #{msg.action_card.task_id}
+                        </Text>
+                        <View style={styles.techCardNoticeBox}>
+                          <Text style={styles.techCardNoticeText}>
+                            Paytm Field Engineer will arrive on-site with replacement SIM & diagnostic tools. Zero service charge.
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Action Card: Low Battery Alert */}
+                    {isSaathi && msg.action_card?.type === 'DEVICE_BATTERY_ALERT' && (
+                      <View style={[styles.techCardContainer, { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' }]}>
+                        <Text style={[styles.techCardTitle, { color: '#B45309' }]}>⚡ Critical Battery Warning</Text>
+                        <Text style={[styles.techCardSlotText, { color: '#92400E' }]}>
+                          Battery: {msg.action_card.battery_level}% · Connect Charger Immediately
+                        </Text>
                       </View>
                     )}
 
@@ -934,20 +1072,27 @@ export default function App() {
                 <View style={[styles.chatBubble, styles.bubbleSaathi]}>
                   <ActivityIndicator size="small" color={colors.paytmBlue} />
                   <Text style={[styles.chatBubbleText, styles.textSaathi, { marginTop: 4 }]}>
-                    Saathi Resolve investigating payment switch...
+                    Saathi is diagnosing...
                   </Text>
                 </View>
               </View>
             )}
           </ScrollView>
 
-          {/* Chat Input Bar */}
+          {/* Chat Input Bar with Voice Mic Button */}
           <View style={styles.chatInputBar}>
+            <TouchableOpacity
+              style={styles.voiceMicBtn}
+              onPress={handleTriggerVoiceSpeech}
+            >
+              <Text style={{ fontSize: 18 }}>🎙</Text>
+            </TouchableOpacity>
+
             <TextInput
               style={styles.chatTextInput}
               value={chatInput}
               onChangeText={setChatInput}
-              placeholder="Ask Saathi (e.g. 'Customer ₹250 failed')..."
+              placeholder="Ask Saathi (Voice or text)..."
               placeholderTextColor="#9CA3AF"
               onSubmitEditing={() => handleSendMessage()}
               returnKeyType="send"
@@ -1172,6 +1317,21 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: 2,
   },
+  demoToggleBtn: {
+    marginTop: spacing.sm,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: radii.sm,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoToggleBtnText: {
+    fontSize: 11,
+    color: colors.paytmBlue,
+    fontWeight: '700',
+  },
   collectionsBigAmount: {
     fontSize: 26,
     fontWeight: '800',
@@ -1331,8 +1491,20 @@ const styles = StyleSheet.create({
   },
   chatHeaderSubtitle: {
     fontSize: 10,
-    color: colors.success,
+    color: colors.paytmBlue,
     fontWeight: '600',
+  },
+  voiceListeningBanner: {
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FDE68A',
+  },
+  voiceListeningText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B45309',
   },
   quickChipsBar: {
     backgroundColor: '#F0F9FF',
@@ -1409,6 +1581,21 @@ const styles = StyleSheet.create({
   textUser: {
     color: '#FFFFFF',
   },
+  voicePill: {
+    marginTop: 6,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  voicePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
   hindiExplanationCard: {
     marginTop: 8,
     backgroundColor: '#FFFBEB',
@@ -1427,6 +1614,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#78350F',
     lineHeight: 16,
+  },
+
+  // Technician Card
+  techCardContainer: {
+    marginTop: 10,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    borderRadius: radii.card,
+    padding: 12,
+  },
+  techCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  techCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E3A8A',
+  },
+  techCardSlotText: {
+    fontSize: 12,
+    color: '#1E40AF',
+    lineHeight: 16,
+  },
+  techCardMetaText: {
+    fontSize: 10,
+    color: '#3B82F6',
+    marginTop: 3,
+    fontWeight: '600',
+  },
+  techCardNoticeBox: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 6,
+    padding: 6,
+    marginTop: 8,
+  },
+  techCardNoticeText: {
+    fontSize: 10,
+    color: '#1E3A8A',
+    lineHeight: 14,
   },
 
   // Inline Approval Card
@@ -1540,6 +1770,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: colors.borderLight,
+  },
+  voiceMicBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
   chatTextInput: {
     flex: 1,

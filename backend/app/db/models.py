@@ -1,5 +1,5 @@
-import enum
 import uuid
+import enum
 from datetime import datetime
 from sqlalchemy import (
     Column,
@@ -8,8 +8,8 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
-    Text,
     Enum as SQLEnum,
+    Text,
     Index,
 )
 from sqlalchemy.orm import relationship
@@ -107,9 +107,18 @@ class Device(Base):
     battery_level = Column(Integer, default=100, nullable=False)
     status = Column(String(50), default="ONLINE", nullable=False)
     
+    # Extended telemetry fields for Fix Agent (Phase 5)
+    last_heartbeat = Column(DateTime, nullable=True)
+    signal_strength_dbm = Column(Integer, default=-70, nullable=True)
+    firmware_version = Column(String(50), default="v3.4.1", nullable=True)
+    reboot_in_progress = Column(Boolean, default=False, nullable=False)
+    technician_visit_booked = Column(Boolean, default=False, nullable=False)
+    technician_slot = Column(String(100), nullable=True)
+    
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     merchant = relationship("Merchant", back_populates="devices")
 
@@ -181,6 +190,7 @@ class Task(Base):
     id = Column(String(64), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
     merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    device_id = Column(String(64), ForeignKey("devices.id"), nullable=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     bucket = Column(SQLEnum(TaskBucket), default=TaskBucket.PENDING, nullable=False)
@@ -235,3 +245,20 @@ class AuditEvent(Base):
         Index("ix_audit_events_created_at", "created_at"),
         Index("ix_audit_events_idempotency_key", "idempotency_key"),
     )
+
+class ScheduledJob(Base):
+    __tablename__ = "scheduled_jobs"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), nullable=True)
+    job_type = Column(String(64), nullable=False)  # e.g. "DEVICE_RECHECK"
+    target_id = Column(String(64), nullable=False)  # e.g. device serial or ID
+    run_at = Column(DateTime, nullable=False)
+    status = Column(String(32), default="SCHEDULED", nullable=False)  # SCHEDULED | RUNNING | COMPLETED | FAILED
+    idempotency_key = Column(String(128), unique=True, nullable=False)
+    payload_json = Column(Text, nullable=True)
+    
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

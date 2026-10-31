@@ -824,9 +824,7 @@ export default function App() {
         method: 'POST',
       });
       if (res.ok) {
-        const data = await res.json();
         await fetchSummary();
-        handleSendMessage(`Soundbox status toggled to ${data.new_status}. Please recheck.`);
       }
     } catch (_e) {
     } finally {
@@ -1203,8 +1201,8 @@ export default function App() {
                 </View>
               </View>
 
-              {/* Offline Warning Banner & Go to Saathi Chat Shortcut */}
-              {summary?.device?.status === 'OFFLINE' ? (
+              {/* Offline Warning Banner & Go to Saathi Chat Shortcut (Shown ONLY when OFFLINE) */}
+              {summary?.device?.status === 'OFFLINE' && (
                 <View style={styles.soundboxOfflineBanner}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                     <Animated.View
@@ -1218,7 +1216,7 @@ export default function App() {
                       }}
                     />
                     <Text style={styles.soundboxOfflineAlertTitle}>
-                      Live Alert: Soundbox Offline Hai
+                      Soundbox Offline Hai
                     </Text>
                   </View>
                   <Text style={styles.soundboxOfflineAlertText}>
@@ -1228,26 +1226,14 @@ export default function App() {
                     style={styles.soundboxGoToChatBtn}
                     onPress={() => {
                       setActiveTab('CHAT');
-                      handleSendMessage('Soundbox SB-JAI-101 is not speaking chime, red light is on');
+                      setChatInput('Soundbox offline dikh raha hai, check karo kya problem hai');
                     }}
                   >
                     <Text style={styles.soundboxGoToChatBtnText}>
-                      💬 Go to Saathi Chat (Fix Audio & Book Technician) →
+                      💬 Go to Saathi Chat →
                     </Text>
                   </TouchableOpacity>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.soundboxChatNormalBtn}
-                  onPress={() => {
-                    setActiveTab('CHAT');
-                    handleSendMessage('Soundbox status aur volume check karo');
-                  }}
-                >
-                  <Text style={styles.soundboxChatNormalBtnText}>
-                    💬 Go to Saathi Chat (Soundbox Health & Diagnostics)
-                  </Text>
-                </TouchableOpacity>
               )}
 
               {/* Demo Toggle Button */}

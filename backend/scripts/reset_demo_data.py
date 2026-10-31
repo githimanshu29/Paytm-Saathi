@@ -20,6 +20,9 @@ from app.db.models import (
     TransactionFee,
     Chargeback,
     Settlement,
+    MerchantFollowup,
+    MerchantActivityMetric,
+    MerchantDocument,
 )
 from scripts.seed_demo_data import seed_demo_data
 
@@ -32,6 +35,9 @@ def reset_demo_data():
         db.query(ActionApproval).delete()
         db.query(Task).delete()
         db.query(ScheduledJob).delete()
+        db.query(MerchantDocument).delete()
+        db.query(MerchantFollowup).delete()
+        db.query(MerchantActivityMetric).delete()
         db.query(Chargeback).delete()
         db.query(TransactionFee).delete()
         db.query(Settlement).delete()

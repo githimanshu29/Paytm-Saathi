@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column,
     String,
     Integer,
+    Float,
     Boolean,
     DateTime,
     ForeignKey,
@@ -81,6 +82,9 @@ class Merchant(Base):
     settlements = relationship("Settlement", back_populates="merchant")
     fees = relationship("TransactionFee", back_populates="merchant")
     chargebacks = relationship("Chargeback", back_populates="merchant")
+    activity_metrics = relationship("MerchantActivityMetric", back_populates="merchant")
+    followups = relationship("MerchantFollowup", back_populates="merchant")
+    documents = relationship("MerchantDocument", back_populates="merchant", cascade="all, delete-orphan")
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -342,3 +346,92 @@ class Settlement(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     merchant = relationship("Merchant", back_populates="settlements")
+
+
+class MerchantActivityMetric(Base):
+    __tablename__ = "merchant_activity_metrics"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+
+    baseline_daily_tx_count = Column(Integer, default=30, nullable=False)
+    baseline_daily_volume_paise = Column(Integer, default=1000000, nullable=False)  # in paise
+    recent_daily_tx_count = Column(Integer, default=10, nullable=False)
+    recent_daily_volume_paise = Column(Integer, default=300000, nullable=False)  # in paise
+    drop_percentage = Column(Integer, default=70, nullable=False)  # integer percentage drop
+
+    health_status = Column(String(50), default="AT_RISK", nullable=False)  # HEALTHY | AT_RISK | DORMANT
+    diagnosed_cause = Column(String(50), nullable=True)  # DEVICE_ISSUE | SETTLEMENT_ISSUE | COMPETITOR_OR_DISENGAGEMENT
+    revival_stage = Column(String(50), default="AT_RISK", nullable=False)  # AT_RISK | FOLLOWUP_SENT | WARM_LEAD | REVIVED
+
+    last_scanned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    recovered_at = Column(DateTime, nullable=True)
+
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="activity_metrics")
+
+
+class MerchantFollowup(Base):
+    __tablename__ = "merchant_followups"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+
+    cause_type = Column(String(50), nullable=False)  # DEVICE_ISSUE | SETTLEMENT_ISSUE | COMPETITOR_OR_DISENGAGEMENT
+    message_title = Column(String(255), nullable=False)
+    message_body = Column(Text, nullable=False)
+    offer_code = Column(String(100), nullable=True)
+    offer_details = Column(Text, nullable=True)
+
+    status = Column(String(50), default="DELIVERED", nullable=False)  # PENDING | DELIVERED | ACCEPTED | DISMISSED | REVIVED
+    handed_off_to = Column(String(50), nullable=True)  # FIX | RECONCILE | FIELDMATE_SALES_REP
+    task_id = Column(String(64), nullable=True)
+
+    delivered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    responded_at = Column(DateTime, nullable=True)
+    merchant_response = Column(String(50), nullable=True)  # ACCEPTED | DISMISSED
+
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="followups")
+
+
+class MerchantDocument(Base):
+    __tablename__ = "merchant_documents"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+
+    document_type = Column(String(50), nullable=False)  # PAN_CARD | BANK_PROOF | SHOP_PHOTO
+    status = Column(String(50), default="MISSING", nullable=False)  # MISSING | UPLOADED | OCR_FAILED | OCR_PASSED | VERIFIED | REJECTED
+
+    file_url = Column(String(512), nullable=True)
+    file_name = Column(String(255), nullable=True)
+
+    # Candidate OCR extraction (Explicitly untrusted until separate verification)
+    ocr_quality_flag = Column(String(50), nullable=True)  # CLEAR | BLURRY | CROPPED | GLARE
+    ocr_candidate_fields = Column(Text, nullable=True)  # JSON string of candidate fields
+    ocr_confidence = Column(Float, nullable=True)
+    is_ocr_passed = Column(Boolean, default=False, nullable=False)
+    rejection_reason = Column(String(255), nullable=True)
+
+    # Simulated authorized verification step (NSDL / Penny Drop / Geolocation check)
+    authorized_verification_status = Column(String(50), default="PENDING", nullable=False)  # PENDING | VERIFIED | FAILED
+    verified_at = Column(DateTime, nullable=True)
+
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="documents")

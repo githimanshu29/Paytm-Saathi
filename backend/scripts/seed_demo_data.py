@@ -22,6 +22,9 @@ from app.db.models import (
     TransactionFee,
     Chargeback,
     Settlement,
+    MerchantActivityMetric,
+    MerchantFollowup,
+    MerchantDocument,
 )
 from app.core.security import hash_password
 
@@ -506,7 +509,7 @@ def seed_demo_data():
                     net_expected=1300000,  # ₹13,000.00
                     net_settled=1180000,   # ₹11,800.00
                     discrepancy=-120000,   # -₹1,200.00 Shortfall
-                    status="DISCREPANCY",
+                    status="DISPUTED",
                     bank_utr="ICICINODAL99271027",
                     nodal_account="ICICI_NODAL_0192",
                     evidence_attached="ICICI Nodal Batch statement #BATCH-20261027-01 shows payout of ₹11,800.00 vs expected net ₹13,000.00 (Shortfall: ₹1,200.00).",
@@ -543,10 +546,10 @@ def seed_demo_data():
                     device_type="Soundbox 2.0",
                     serial_number="SB-KNP-202",
                     sim_number="8991009876543210",
-                    battery_level=12,
-                    status="ERROR",
-                    last_heartbeat=now - timedelta(hours=4),
-                    signal_strength_dbm=-98,
+                    battery_level=85,
+                    status="ONLINE",
+                    last_heartbeat=now - timedelta(minutes=10),
+                    signal_strength_dbm=-68,
                     firmware_version="v2.1.0",
                     reboot_in_progress=False,
                     technician_visit_booked=False,
@@ -827,6 +830,419 @@ def seed_demo_data():
                 environment="DEMO",
             )
             db.add(t_pending)
+
+        # -------------------------------------------------------------
+        # Phase 7: Seeded Activity Metrics & Retention Follow-ups
+        # -------------------------------------------------------------
+        # (1) Gupta Electronics: Volume drop caused by OFFLINE device
+        db.add(
+            MerchantActivityMetric(
+                id="metric_gupta_dormancy",
+                tenant_id=tenant.id,
+                merchant_id="mer_gupta_electronics",
+                baseline_daily_tx_count=50,
+                baseline_daily_volume_paise=2000000,  # ₹20,000.00
+                recent_daily_tx_count=4,
+                recent_daily_volume_paise=160000,    # ₹1,600.00
+                drop_percentage=92,
+                health_status="AT_RISK",
+                diagnosed_cause="DEVICE_ISSUE",
+                revival_stage="AT_RISK",
+                last_scanned_at=now,
+                is_synthetic=True,
+                environment="DEMO",
+            )
+        )
+
+        # (2) Verma Sweets: Volume drop caused by UNRESOLVED settlement discrepancy
+        db.add(
+            MerchantActivityMetric(
+                id="metric_verma_dormancy",
+                tenant_id=tenant.id,
+                merchant_id="mer_verma_sweets",
+                baseline_daily_tx_count=35,
+                baseline_daily_volume_paise=1200000,  # ₹12,000.00
+                recent_daily_tx_count=8,
+                recent_daily_volume_paise=250000,    # ₹2,500.00
+                drop_percentage=79,
+                health_status="AT_RISK",
+                diagnosed_cause="SETTLEMENT_ISSUE",
+                revival_stage="AT_RISK",
+                last_scanned_at=now,
+                is_synthetic=True,
+                environment="DEMO",
+            )
+        )
+
+        # (3) Sharma Kirana: Non-technical drop (Hardware & Settlements healthy -> Competitor / Disengagement)
+        db.add(
+            MerchantActivityMetric(
+                id="metric_sharma_dormancy",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                baseline_daily_tx_count=30,
+                baseline_daily_volume_paise=950000,  # ₹9,500.00
+                recent_daily_tx_count=9,
+                recent_daily_volume_paise=285000,   # ₹2,850.00
+                drop_percentage=70,
+                health_status="AT_RISK",
+                diagnosed_cause="COMPETITOR_OR_DISENGAGEMENT",
+                revival_stage="FOLLOWUP_SENT",
+                last_scanned_at=now,
+                is_synthetic=True,
+                environment="DEMO",
+            )
+        )
+
+        # Active Follow-up delivered to Sharma Kirana
+        db.add(
+            MerchantFollowup(
+                id="fol_sharma_revive_01",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                cause_type="COMPETITOR_OR_DISENGAGEMENT",
+                message_title="Special Kirana Growth Offer from Paytm Saathi",
+                message_body="Namaste Sharma ji! We noticed a slowdown in your Soundbox announcements recently. To support your shop, we've unlocked the Kirana Booster: 0% MDR on your next 100 UPI transactions and ₹100 Soundbox cash rebate.",
+                offer_code="KIRANA_BOOSTER_0MDR",
+                offer_details="0% MDR on next 100 UPI transactions + ₹100 Soundbox rent rebate",
+                status="DELIVERED",
+                handed_off_to=None,
+                delivered_at=now,
+                is_synthetic=True,
+                environment="DEMO",
+            )
+        )
+
+        # -------------------------------------------------------------
+        # Phase 8: Seeded KYC Applications & Incomplete Onboardings
+        # -------------------------------------------------------------
+        # Merchant 5: Rajesh Singh (Jaipur) - Missing Bank Proof
+        m5 = db.query(Merchant).filter_by(id="mer_singh_automobiles").first()
+        if not m5:
+            m5 = Merchant(
+                id="mer_singh_automobiles",
+                tenant_id=tenant.id,
+                store_name="Singh Automobiles & Spares",
+                merchant_name="Rajesh Singh",
+                phone="+919811223344",
+                city="Jaipur",
+                status="PENDING",
+                onboarding_status="PENDING_DOCUMENTATION",
+                kyc_status="DOCUMENTS_REQUIRED",
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(m5)
+            db.flush()
+
+        # Merchant 6: Priya Sharma (Lucknow) - Missing Shop Photo
+        m6 = db.query(Merchant).filter_by(id="mer_shree_radhe_bakery").first()
+        if not m6:
+            m6 = Merchant(
+                id="mer_shree_radhe_bakery",
+                tenant_id=tenant.id,
+                store_name="Radhe Krishna Bakery",
+                merchant_name="Priya Sharma",
+                phone="+919822334455",
+                city="Lucknow",
+                status="PENDING",
+                onboarding_status="PENDING_DOCUMENTATION",
+                kyc_status="DOCUMENTS_REQUIRED",
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(m6)
+            db.flush()
+
+        # Merchant 7: Sunil Verma (Mumbai) - Full-pass applicant ready for authorized verification
+        m7 = db.query(Merchant).filter_by(id="mer_apex_retail").first()
+        if not m7:
+            m7 = Merchant(
+                id="mer_apex_retail",
+                tenant_id=tenant.id,
+                store_name="Apex Fresh Mart",
+                merchant_name="Sunil Verma",
+                phone="+919833445566",
+                city="Mumbai",
+                status="PENDING",
+                onboarding_status="UNDER_REVIEW",
+                kyc_status="IN_VERIFICATION",
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(m7)
+            db.flush()
+
+        # Seed Documents for Applications
+        # 1. Sharma Kirana (Fully Active & Verified)
+        docs_sharma = [
+            MerchantDocument(
+                id="doc_sharma_pan",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                document_type="PAN_CARD",
+                status="VERIFIED",
+                file_name="pan_sharma.jpg",
+                file_url="https://paytm-saathi.demo/docs/pan_sharma.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"pan_number": "AJLPS1928K", "name": "RAMESH SHARMA", "untrusted": true}',
+                ocr_confidence=0.98,
+                is_ocr_passed=True,
+                authorized_verification_status="VERIFIED",
+                verified_at=now - timedelta(days=60),
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_sharma_bank",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                document_type="BANK_PROOF",
+                status="VERIFIED",
+                file_name="cheque_sharma.jpg",
+                file_url="https://paytm-saathi.demo/docs/cheque_sharma.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"account_no": "910283719283", "ifsc": "PYTM0123456", "untrusted": true}',
+                ocr_confidence=0.95,
+                is_ocr_passed=True,
+                authorized_verification_status="VERIFIED",
+                verified_at=now - timedelta(days=60),
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_sharma_photo",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                document_type="SHOP_PHOTO",
+                status="VERIFIED",
+                file_name="storefront_sharma.jpg",
+                file_url="https://paytm-saathi.demo/docs/storefront_sharma.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"signboard": "Sharma General Store", "untrusted": true}',
+                ocr_confidence=0.94,
+                is_ocr_passed=True,
+                authorized_verification_status="VERIFIED",
+                verified_at=now - timedelta(days=60),
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+        ]
+        for d in docs_sharma:
+            db.add(d)
+
+        # 2. Gupta Electronics (PAN is BLURRY -> Needs PAN Resubmission)
+        docs_gupta = [
+            MerchantDocument(
+                id="doc_gupta_pan",
+                tenant_id=tenant.id,
+                merchant_id="mer_gupta_electronics",
+                document_type="PAN_CARD",
+                status="OCR_FAILED",
+                file_name="pan_gupta_blurry.jpg",
+                file_url="https://paytm-saathi.demo/docs/pan_gupta_blurry.jpg",
+                ocr_quality_flag="BLURRY",
+                ocr_candidate_fields='{"warning": "LOW_CONFIDENCE_UNTRUSTED", "confidence": 0.45}',
+                ocr_confidence=0.45,
+                is_ocr_passed=False,
+                rejection_reason="Your PAN card photo is blurry and illegible. Please resend a sharp, well-lit photo.",
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_gupta_bank",
+                tenant_id=tenant.id,
+                merchant_id="mer_gupta_electronics",
+                document_type="BANK_PROOF",
+                status="OCR_PASSED",
+                file_name="passbook_gupta.jpg",
+                file_url="https://paytm-saathi.demo/docs/passbook_gupta.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"account_no": "501004819281", "ifsc": "HDFC0001234", "untrusted": true}',
+                ocr_confidence=0.94,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_gupta_photo",
+                tenant_id=tenant.id,
+                merchant_id="mer_gupta_electronics",
+                document_type="SHOP_PHOTO",
+                status="OCR_PASSED",
+                file_name="storefront_gupta.jpg",
+                file_url="https://paytm-saathi.demo/docs/storefront_gupta.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"signboard": "Gupta Electronics", "untrusted": true}',
+                ocr_confidence=0.96,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+        ]
+        for d in docs_gupta:
+            db.add(d)
+
+        # 3. Singh Automobiles (Bank Proof MISSING)
+        docs_singh = [
+            MerchantDocument(
+                id="doc_singh_pan",
+                tenant_id=tenant.id,
+                merchant_id="mer_singh_automobiles",
+                document_type="PAN_CARD",
+                status="OCR_PASSED",
+                file_name="pan_singh.jpg",
+                file_url="https://paytm-saathi.demo/docs/pan_singh.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"pan_number": "RAJPS9921K", "name": "RAJESH SINGH", "untrusted": true}',
+                ocr_confidence=0.97,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_singh_bank",
+                tenant_id=tenant.id,
+                merchant_id="mer_singh_automobiles",
+                document_type="BANK_PROOF",
+                status="MISSING",
+                ocr_quality_flag=None,
+                ocr_candidate_fields=None,
+                is_ocr_passed=False,
+                rejection_reason="Cancelled cheque or bank passbook statement is missing.",
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_singh_photo",
+                tenant_id=tenant.id,
+                merchant_id="mer_singh_automobiles",
+                document_type="SHOP_PHOTO",
+                status="OCR_PASSED",
+                file_name="storefront_singh.jpg",
+                file_url="https://paytm-saathi.demo/docs/storefront_singh.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"signboard": "Singh Automobiles & Spares", "untrusted": true}',
+                ocr_confidence=0.93,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+        ]
+        for d in docs_singh:
+            db.add(d)
+
+        # 4. Radhe Krishna Bakery (Shop Front Photo MISSING)
+        docs_radhe = [
+            MerchantDocument(
+                id="doc_radhe_pan",
+                tenant_id=tenant.id,
+                merchant_id="mer_shree_radhe_bakery",
+                document_type="PAN_CARD",
+                status="OCR_PASSED",
+                file_name="pan_radhe.jpg",
+                file_url="https://paytm-saathi.demo/docs/pan_radhe.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"pan_number": "PRYPS8831A", "name": "PRIYA SHARMA", "untrusted": true}',
+                ocr_confidence=0.96,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_radhe_bank",
+                tenant_id=tenant.id,
+                merchant_id="mer_shree_radhe_bakery",
+                document_type="BANK_PROOF",
+                status="OCR_PASSED",
+                file_name="passbook_radhe.jpg",
+                file_url="https://paytm-saathi.demo/docs/passbook_radhe.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"account_no": "602100829102", "ifsc": "SBIN0001029", "untrusted": true}',
+                ocr_confidence=0.95,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_radhe_photo",
+                tenant_id=tenant.id,
+                merchant_id="mer_shree_radhe_bakery",
+                document_type="SHOP_PHOTO",
+                status="MISSING",
+                ocr_quality_flag=None,
+                ocr_candidate_fields=None,
+                is_ocr_passed=False,
+                rejection_reason="Shop storefront photo with clear business signboard is missing.",
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+        ]
+        for d in docs_radhe:
+            db.add(d)
+
+        # 5. Apex Fresh Mart (Full-Pass Candidate: All 3 docs clear, ready for authorized verification step)
+        docs_apex = [
+            MerchantDocument(
+                id="doc_apex_pan",
+                tenant_id=tenant.id,
+                merchant_id="mer_apex_retail",
+                document_type="PAN_CARD",
+                status="OCR_PASSED",
+                file_name="pan_apex.jpg",
+                file_url="https://paytm-saathi.demo/docs/pan_apex.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"pan_number": "SNLV99120M", "name": "SUNIL VERMA", "untrusted": true}',
+                ocr_confidence=0.98,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_apex_bank",
+                tenant_id=tenant.id,
+                merchant_id="mer_apex_retail",
+                document_type="BANK_PROOF",
+                status="OCR_PASSED",
+                file_name="passbook_apex.jpg",
+                file_url="https://paytm-saathi.demo/docs/passbook_apex.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"account_no": "001201928374", "ifsc": "ICIC0000012", "untrusted": true}',
+                ocr_confidence=0.97,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+            MerchantDocument(
+                id="doc_apex_photo",
+                tenant_id=tenant.id,
+                merchant_id="mer_apex_retail",
+                document_type="SHOP_PHOTO",
+                status="OCR_PASSED",
+                file_name="storefront_apex.jpg",
+                file_url="https://paytm-saathi.demo/docs/storefront_apex.jpg",
+                ocr_quality_flag="CLEAR",
+                ocr_candidate_fields='{"signboard": "Apex Fresh Mart", "untrusted": true}',
+                ocr_confidence=0.95,
+                is_ocr_passed=True,
+                authorized_verification_status="PENDING",
+                is_synthetic=True,
+                environment="DEMO",
+            ),
+        ]
+        for d in docs_apex:
+            db.add(d)
 
         # Initial audit log
         audit_event = AuditEvent(

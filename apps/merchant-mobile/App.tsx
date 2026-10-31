@@ -23,7 +23,7 @@ import {
 
 const API_BASE_URL = 'http://localhost:8000';
 
-type AppTab = 'HOME' | 'CHAT' | 'PASSBOOK' | 'SETTINGS';
+type AppTab = 'HOME' | 'CHAT' | 'PASSBOOK' | 'ONBOARD' | 'SETTINGS';
 type ScreenState = 'PHONE_ENTRY' | 'OTP_ENTRY' | 'APP';
 
 interface MerchantUser {
@@ -91,6 +91,7 @@ interface MerchantSummary {
   city: string;
   status: string;
   kyc_status: string;
+  onboarding_status?: string;
   device?: DeviceSummary;
   payments: PaymentSummary;
   dues: DuesSummary;
@@ -137,12 +138,70 @@ interface SettlementBreakdownCardData {
   evidence_status?: string;
 }
 
+interface ReviveCheckinCardData {
+  type: string;
+  followup_id: string;
+  cause_type: string;
+  drop_percentage: number;
+  title: string;
+  body: string;
+  status: string;
+  handed_off_to?: string;
+  offer_details?: string;
+  action_prompt?: string;
+}
+
+interface MissingItemCardData {
+  type: string;
+  document_type?: string;
+  doc_type?: string;
+  is_blurry?: boolean;
+  action_code?: string;
+  title?: string;
+  specific_reason?: string;
+  task_id?: string;
+  chip_status?: StatusType;
+  retry_allowed?: boolean;
+  application_status?: string;
+  kyc_status?: string;
+}
+
+interface DocumentItem {
+  id: string;
+  document_type: string;
+  status: string;
+  file_name?: string;
+  file_url?: string;
+  ocr_quality_flag?: string;
+  ocr_candidate_fields?: Record<string, any>;
+  is_ocr_passed: boolean;
+  rejection_reason?: string;
+  authorized_verification_status: string;
+  verified_at?: string;
+}
+
+interface OnboardingChecklist {
+  found: boolean;
+  merchant_id: string;
+  store_name: string;
+  city: string;
+  phone: string;
+  onboarding_status: string;
+  kyc_status: string;
+  current_step: string;
+  documents: DocumentItem[];
+  missing_documents: string[];
+  blurry_documents: string[];
+  can_submit_for_verification: boolean;
+  is_fully_verified: boolean;
+}
+
 interface ChatMessage {
   id: string;
   sender: 'user' | 'saathi';
   text: string;
   timestamp: string;
-  agent?: string; // RESOLVE | FIX | RECONCILE | ORCHESTRATOR
+  agent?: string; // RESOLVE | FIX | RECONCILE | REVIVE | ONBOARD | ORCHESTRATOR
   branch?: string;
   step?: string;
   chip_status?: StatusType;
@@ -151,8 +210,11 @@ interface ChatMessage {
   approval_card?: ApprovalCardData | null;
   action_card?: ActionCardData | null;
   breakdown_card?: SettlementBreakdownCardData | null;
+  checkin_card?: ReviveCheckinCardData | null;
+  missing_item_card?: MissingItemCardData | null;
   settlement_date?: string;
   approval_decided?: 'APPROVED' | 'REJECTED';
+  checkin_decided?: 'ACCEPTED' | 'DISMISSED';
   evidence_uploaded?: boolean;
   speech_audio_base64?: string;
   speech_duration_seconds?: number;
@@ -193,6 +255,112 @@ export default function App() {
   const [voiceActive, setVoiceActive] = useState(false);
   const [approvalSubmittingId, setApprovalSubmittingId] = useState<string | null>(null);
   const [demoToggleLoading, setDemoToggleLoading] = useState(false);
+  const [activeCheckin, setActiveCheckin] = useState<ReviveCheckinCardData | null>(null);
+  const [checkinResponding, setCheckinResponding] = useState(false);
+
+  // Onboard Agent & KYC Checklist state
+  const [checklist, setChecklist] = useState<OnboardingChecklist | null>(null);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [uploadDocType, setUploadDocType] = useState<'PAN_CARD' | 'BANK_PROOF' | 'SHOP_PHOTO'>('PAN_CARD');
+  const [uploading, setUploading] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState<{ status: 'OCR_PASSED' | 'OCR_FAILED'; message: string; specific_reason?: string } | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verificationSuccess, setVerificationSuccess] = useState<string | null>(null);
+
+  const fetchChecklist = useCallback(async (authToken?: string) => {
+    const activeToken = authToken || token;
+    if (!activeToken) return;
+    setChecklistLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/merchant/onboarding/checklist`, {
+        headers: { Authorization: `Bearer ${activeToken}` },
+      });
+      if (res.ok) {
+        const data: OnboardingChecklist = await res.json();
+        setChecklist(data);
+      }
+    } catch (_e) {
+    } finally {
+      setChecklistLoading(false);
+    }
+  }, [token]);
+
+  const handleUploadDocument = async (simulateBlur: boolean = false) => {
+    if (!token) return;
+    setUploading(true);
+    setUploadFeedback(null);
+    try {
+      const fileName = simulateBlur
+        ? `blurry_${uploadDocType.toLowerCase()}_sample.jpg`
+        : `clear_${uploadDocType.toLowerCase()}_scan.jpg`;
+
+      const res = await fetch(`${API_BASE_URL}/merchant/onboarding/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          document_type: uploadDocType,
+          file_name: fileName,
+          simulate_blur: simulateBlur,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
+
+      if (data.status === 'OCR_FAILED') {
+        setUploadFeedback({
+          status: 'OCR_FAILED',
+          message: data.message,
+          specific_reason: data.rejection_reason,
+        });
+      } else {
+        setUploadFeedback({
+          status: 'OCR_PASSED',
+          message: data.message,
+        });
+      }
+
+      await fetchChecklist();
+      await fetchSummary();
+    } catch (err: any) {
+      setUploadFeedback({
+        status: 'OCR_FAILED',
+        message: err.message || 'Failed to upload document',
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSubmitVerification = async () => {
+    if (!token) return;
+    setVerifying(true);
+    setVerificationSuccess(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/merchant/onboarding/submit-verification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Verification submission failed');
+
+      setVerificationSuccess(data.message || 'KYC Verified successfully! Account is now ACTIVE.');
+      await fetchChecklist();
+      await fetchSummary();
+    } catch (err: any) {
+      alert(err.message || 'Verification failed. Requirements pending.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   // Load saved token on mount
   useEffect(() => {
@@ -232,6 +400,29 @@ export default function App() {
 
       const data: MerchantSummary = await res.json();
       setSummary(data);
+
+      // Also check for active Dormancy/Retention check-in from Revive Agent
+      try {
+        const checkinRes = await fetch(`${API_BASE_URL}/merchant/revive/active-checkin`, {
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+        if (checkinRes.ok) {
+          const cData = await checkinRes.json();
+          if (cData.has_checkin && cData.followup) {
+            setActiveCheckin({
+              type: 'REVIVE_CHECKIN',
+              followup_id: cData.followup.id,
+              cause_type: cData.followup.cause_type,
+              drop_percentage: 70,
+              title: cData.followup.message_title,
+              body: cData.followup.message_body,
+              status: cData.followup.status,
+              offer_details: cData.followup.offer_details,
+              handed_off_to: cData.followup.handed_off_to,
+            });
+          }
+        }
+      } catch (_e) {}
     } catch (_err) {
       setSummaryError('Unable to load your live store summary. Please check your network and tap Retry.');
     } finally {
@@ -382,6 +573,8 @@ export default function App() {
         approval_card: data.approval_card,
         action_card: data.action_card,
         breakdown_card: data.breakdown_card,
+        checkin_card: data.checkin_card,
+        missing_item_card: data.missing_item_card,
         settlement_date: data.settlement_date,
         speech_audio_base64: data.speech_audio_base64,
         speech_duration_seconds: data.speech_duration_seconds,
@@ -442,6 +635,44 @@ export default function App() {
     } catch (_e) {
     } finally {
       setApprovalSubmittingId(null);
+    }
+  };
+
+  // Merchant Response to Revive / Retention Check-in (Accept or Dismiss)
+  const handleRespondCheckin = async (followupId: string, decision: 'ACCEPT' | 'DISMISS', messageId?: string) => {
+    if (!token) return;
+    setCheckinResponding(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/merchant/revive/${followupId}/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ decision }),
+      });
+
+      if (res.ok) {
+        if (activeCheckin && activeCheckin.followup_id === followupId) {
+          setActiveCheckin((prev) => (prev ? { ...prev, status: decision === 'ACCEPT' ? 'ACCEPTED' : 'DISMISSED' } : null));
+        }
+        if (messageId) {
+          setChatMessages((prev) =>
+            prev.map((m) =>
+              m.id === messageId
+                ? {
+                    ...m,
+                    checkin_decided: decision === 'ACCEPT' ? 'ACCEPTED' : 'DISMISSED',
+                    chip_status: (decision === 'ACCEPT' ? 'executed' : 'verified') as StatusType,
+                  }
+                : m
+            )
+          );
+        }
+      }
+    } catch (_e) {
+    } finally {
+      setCheckinResponding(false);
     }
   };
 
@@ -518,10 +749,37 @@ export default function App() {
           </TouchableOpacity>
 
           <View style={styles.demoHintBox}>
-            <Text style={styles.demoHintTitle}>DEMO ACCOUNT</Text>
-            <Text style={styles.demoHintDesc}>
-              Seeded Merchant: Sharma Kirana Store (+91 9876543210) · Demo OTP: 123456
-            </Text>
+            <Text style={styles.demoHintTitle}>SELECT SEEDED DEMO ACCOUNT (OTP: 123456)</Text>
+            <View style={{ gap: 6, marginTop: 6 }}>
+              <TouchableOpacity
+                style={styles.demoSelectBtn}
+                onPress={() => setPhone('9876543210')}
+              >
+                <Text style={styles.demoSelectTitle}>Sharma Kirana (+91 9876543210)</Text>
+                <Text style={styles.demoSelectDesc}>Fully Active & Verified Store Baseline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.demoSelectBtn}
+                onPress={() => setPhone('9876543211')}
+              >
+                <Text style={styles.demoSelectTitle}>Gupta Electronics (+91 9876543211)</Text>
+                <Text style={styles.demoSelectDesc}>⚠️ Onboard: PAN card photo is BLURRY</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.demoSelectBtn}
+                onPress={() => setPhone('9876543212')}
+              >
+                <Text style={styles.demoSelectTitle}>Singh Automobiles (+91 9876543212)</Text>
+                <Text style={styles.demoSelectDesc}>⏳ Onboard: Bank Proof document is MISSING</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.demoSelectBtn}
+                onPress={() => setPhone('9833445566')}
+              >
+                <Text style={styles.demoSelectTitle}>Apex Retail (+91 9833445566)</Text>
+                <Text style={styles.demoSelectDesc}>🚀 Onboard: All 3 docs passed OCR, Ready for Verification</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </SafeAreaView>
@@ -666,6 +924,81 @@ export default function App() {
               <View style={styles.loadingCard}>
                 <ActivityIndicator size="small" color={colors.paytmBlue} />
                 <Text style={styles.loadingText}>Fetching live store telemetry...</Text>
+              </View>
+            )}
+
+            {/* ONBOARDING INCOMPLETE BANNER (Onboard Agent) */}
+            {summary?.onboarding_status && summary.onboarding_status !== 'COMPLETED' && (
+              <TouchableOpacity
+                style={styles.onboardIncompleteBanner}
+                onPress={() => setActiveTab('ONBOARD')}
+                activeOpacity={0.85}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 20 }}>⚠️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.onboardIncompleteTitle}>Signup & KYC Incomplete</Text>
+                    <Text style={styles.onboardIncompleteDesc}>
+                      Missing required documents to activate payments. Tap to open KYC Closer →
+                    </Text>
+                  </View>
+                  <StatusChipNative status="needs_human" size="sm" label="Docs Required" />
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* RETENTION / DORMANT RECOVERY CHECK-IN BANNER (Revive Agent) */}
+            {activeCheckin && activeCheckin.status !== 'DISMISSED' && (
+              <View style={styles.reviveBannerCard}>
+                <View style={styles.reviveBannerHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 16 }}>🌟</Text>
+                    <Text style={styles.reviveBannerTitle}>{activeCheckin.title}</Text>
+                  </View>
+                  <StatusChipNative
+                    status={activeCheckin.status === 'ACCEPTED' ? 'executed' : 'awaiting_approval'}
+                    size="sm"
+                    label={activeCheckin.status === 'ACCEPTED' ? 'Offer Active' : 'Special Offer'}
+                  />
+                </View>
+
+                <Text style={styles.reviveBannerBody}>{activeCheckin.body}</Text>
+
+                {activeCheckin.offer_details && (
+                  <View style={styles.reviveOfferPill}>
+                    <Text style={styles.reviveOfferPillText}>🎁 {activeCheckin.offer_details}</Text>
+                  </View>
+                )}
+
+                {activeCheckin.status !== 'ACCEPTED' ? (
+                  <View style={styles.reviveActionRow}>
+                    <TouchableOpacity
+                      style={[styles.reviveAcceptBtn, checkinResponding && styles.buttonDisabled]}
+                      disabled={checkinResponding}
+                      onPress={() => handleRespondCheckin(activeCheckin.followup_id, 'ACCEPT')}
+                    >
+                      {checkinResponding ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.reviveAcceptBtnText}>✓ Accept Offer & Connect Field Rep</Text>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.reviveDismissBtn}
+                      disabled={checkinResponding}
+                      onPress={() => handleRespondCheckin(activeCheckin.followup_id, 'DISMISS')}
+                    >
+                      <Text style={styles.reviveDismissBtnText}>Dismiss</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.reviveSuccessBox}>
+                    <Text style={styles.reviveSuccessText}>
+                      ✓ Kirana Booster Activated! Field Sales Rep (Amit V.) has been assigned to visit your shop with a fresh QR kit.
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -840,7 +1173,7 @@ export default function App() {
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
               <Text style={styles.chatHeaderTitle}>Saathi Multi-Agent</Text>
-              <Text style={styles.chatHeaderSubtitle}>Resolve · Fix · Reconcile Copilot</Text>
+              <Text style={styles.chatHeaderSubtitle}>Resolve · Fix · Reconcile · Revive</Text>
             </View>
             <StatusChipNative status="verified" size="sm" label="Active" />
           </View>
@@ -855,6 +1188,18 @@ export default function App() {
           {/* Scenario Quick-Test Chips */}
           <View style={styles.quickChipsBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsScroll}>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('What documents are missing for my KYC onboarding?')}
+              >
+                <Text style={styles.quickChipText}>📋 KYC Closer & Missing Docs (Onboard)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Tell me about dormant merchant reactivation and Kirana booster offer')}
+              >
+                <Text style={styles.quickChipText}>🌟 Kirana Booster Growth Offer (Revive)</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.quickChip}
                 onPress={() => handleSendMessage("Check yesterday's settlement breakdown")}
@@ -1100,6 +1445,78 @@ export default function App() {
                       );
                     })()}
 
+                    {/* Inline Retention / Dormant Check-in Card (Revive Agent) */}
+                    {isSaathi && (msg.checkin_card || (msg.action_card && msg.action_card.type === 'REVIVE_CHECKIN')) && (() => {
+                      const cCard = msg.checkin_card || (msg.action_card as any);
+                      return (
+                        <View style={styles.reviveInlineCard}>
+                          <View style={styles.reviveBannerHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
+                              <Text style={{ fontSize: 16 }}>🌟</Text>
+                              <Text style={styles.reviveBannerTitle}>{cCard.title}</Text>
+                            </View>
+                            <StatusChipNative
+                              status={
+                                msg.checkin_decided === 'ACCEPTED'
+                                  ? 'executed'
+                                  : msg.checkin_decided === 'DISMISSED'
+                                  ? 'verified'
+                                  : 'awaiting_approval'
+                              }
+                              size="sm"
+                              label={
+                                msg.checkin_decided === 'ACCEPTED'
+                                  ? 'Lead Dispatched'
+                                  : msg.checkin_decided === 'DISMISSED'
+                                  ? 'Dismissed'
+                                  : 'Special Offer'
+                              }
+                            />
+                          </View>
+
+                          <Text style={styles.reviveBannerBody}>{cCard.body}</Text>
+
+                          {cCard.offer_details && (
+                            <View style={styles.reviveOfferPill}>
+                              <Text style={styles.reviveOfferPillText}>🎁 {cCard.offer_details}</Text>
+                            </View>
+                          )}
+
+                          {!msg.checkin_decided ? (
+                            <View style={styles.reviveActionRow}>
+                              <TouchableOpacity
+                                style={[styles.reviveAcceptBtn, checkinResponding && styles.buttonDisabled]}
+                                disabled={checkinResponding}
+                                onPress={() => handleRespondCheckin(cCard.followup_id, 'ACCEPT', msg.id)}
+                              >
+                                {checkinResponding ? (
+                                  <ActivityIndicator size="small" color="#FFFFFF" />
+                                ) : (
+                                  <Text style={styles.reviveAcceptBtnText}>✓ Accept & Connect Field Rep</Text>
+                                )}
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                style={styles.reviveDismissBtn}
+                                disabled={checkinResponding}
+                                onPress={() => handleRespondCheckin(cCard.followup_id, 'DISMISS', msg.id)}
+                              >
+                                <Text style={styles.reviveDismissBtnText}>Dismiss</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <View style={styles.reviveSuccessBox}>
+                              <Text style={styles.reviveSuccessText}>
+                                {msg.checkin_decided === 'ACCEPTED'
+                                  ? '✓ Offer Activated! Your dedicated Paytm Sales Rep (Amit V.) has been assigned to visit your shop with a fresh QR kit.'
+                                  : 'Offer dismissed.'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
+
                     {/* Inline Human Approval Card (Branch B Refund Review) */}
                     {isSaathi && msg.approval_card && (
                       <View style={styles.approvalCardContainer}>
@@ -1182,6 +1599,46 @@ export default function App() {
                       </View>
                     )}
 
+                    {/* Inline Onboarding Missing Item Card (Onboard Agent) */}
+                    {isSaathi && msg.missing_item_card && (
+                      <View style={styles.missingItemCardContainer}>
+                        <View style={styles.missingItemCardHeader}>
+                          <Text style={styles.missingItemCardTitle}>
+                            {msg.missing_item_card.type === 'ONBOARDING_COMPLETED_CARD'
+                              ? '🎉 KYC Verified & Activated'
+                              : `📋 ${msg.missing_item_card.title || 'Action Required'}`}
+                          </Text>
+                          <StatusChipNative
+                            status={msg.missing_item_card.type === 'ONBOARDING_COMPLETED_CARD' ? 'verified' : 'needs_human'}
+                            size="sm"
+                            label={msg.missing_item_card.type === 'ONBOARDING_COMPLETED_CARD' ? 'Active' : 'Doc Required'}
+                          />
+                        </View>
+
+                        <Text style={styles.missingItemReasonText}>
+                          {msg.missing_item_card.specific_reason || 'Please submit the required KYC document to finish onboarding.'}
+                        </Text>
+
+                        {msg.missing_item_card.type !== 'ONBOARDING_COMPLETED_CARD' && (
+                          <View style={{ marginTop: 8 }}>
+                            <TouchableOpacity
+                              style={styles.missingItemActionBtn}
+                              onPress={() => {
+                                if (msg.missing_item_card?.document_type) {
+                                  setUploadDocType(msg.missing_item_card.document_type as any);
+                                }
+                                setActiveTab('ONBOARD');
+                              }}
+                            >
+                              <Text style={styles.missingItemActionBtnText}>
+                                📸 Open Camera & Upload {msg.missing_item_card.document_type?.replace('_', ' ') || 'Document'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
                     <Text
                       style={[
                         styles.chatTimestamp,
@@ -1240,6 +1697,373 @@ export default function App() {
         </KeyboardAvoidingView>
       )}
 
+      {/* TAB: ONBOARDING & KYC CLOSER */}
+      {activeTab === 'ONBOARD' && (
+        <View style={styles.tabContentContainer}>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={checklistLoading}
+                onRefresh={() => {
+                  fetchChecklist();
+                  fetchSummary();
+                }}
+                colors={[colors.paytmBlue]}
+                tintColor={colors.paytmBlue}
+              />
+            }
+          >
+            {/* Onboarding Header & Progress Tracker */}
+            <View style={styles.onboardHeroCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={styles.onboardHeroTitle}>Shop Onboarding & KYC</Text>
+                  <Text style={styles.onboardHeroSubtitle}>
+                    {checklist?.store_name || summary?.store_name || 'Your Kirana Shop'}
+                  </Text>
+                </View>
+                <StatusChipNative
+                  status={
+                    checklist?.is_fully_verified || summary?.kyc_status === 'VERIFIED'
+                      ? 'verified'
+                      : checklist?.can_submit_for_verification
+                      ? 'awaiting_approval'
+                      : 'needs_human'
+                  }
+                  size="sm"
+                  label={
+                    checklist?.is_fully_verified || summary?.kyc_status === 'VERIFIED'
+                      ? 'ACTIVE / VERIFIED'
+                      : checklist?.can_submit_for_verification
+                      ? 'READY FOR VERIFICATION'
+                      : 'DOCS REQUIRED'
+                  }
+                />
+              </View>
+
+              {/* 4-Step Progress Indicator */}
+              <View style={styles.stepsRow}>
+                {/* Step 1: PAN */}
+                <View style={styles.stepItem}>
+                  <View
+                    style={[
+                      styles.stepCircle,
+                      checklist?.documents.find((d) => d.document_type === 'PAN_CARD')?.is_ocr_passed
+                        ? styles.stepCircleCompleted
+                        : checklist?.blurry_documents.includes('PAN_CARD')
+                        ? styles.stepCircleError
+                        : styles.stepCirclePending,
+                    ]}
+                  >
+                    <Text style={styles.stepCircleText}>
+                      {checklist?.documents.find((d) => d.document_type === 'PAN_CARD')?.is_ocr_passed
+                        ? '✓'
+                        : '1'}
+                    </Text>
+                  </View>
+                  <Text style={styles.stepItemLabel}>PAN Card</Text>
+                </View>
+                <View style={styles.stepConnector} />
+
+                {/* Step 2: Bank Proof */}
+                <View style={styles.stepItem}>
+                  <View
+                    style={[
+                      styles.stepCircle,
+                      checklist?.documents.find((d) => d.document_type === 'BANK_PROOF')?.is_ocr_passed
+                        ? styles.stepCircleCompleted
+                        : checklist?.missing_documents.includes('BANK_PROOF')
+                        ? styles.stepCirclePending
+                        : styles.stepCirclePending,
+                    ]}
+                  >
+                    <Text style={styles.stepCircleText}>
+                      {checklist?.documents.find((d) => d.document_type === 'BANK_PROOF')?.is_ocr_passed
+                        ? '✓'
+                        : '2'}
+                    </Text>
+                  </View>
+                  <Text style={styles.stepItemLabel}>Bank Proof</Text>
+                </View>
+                <View style={styles.stepConnector} />
+
+                {/* Step 3: Storefront Photo */}
+                <View style={styles.stepItem}>
+                  <View
+                    style={[
+                      styles.stepCircle,
+                      checklist?.documents.find((d) => d.document_type === 'SHOP_PHOTO')?.is_ocr_passed
+                        ? styles.stepCircleCompleted
+                        : checklist?.missing_documents.includes('SHOP_PHOTO')
+                        ? styles.stepCirclePending
+                        : styles.stepCirclePending,
+                    ]}
+                  >
+                    <Text style={styles.stepCircleText}>
+                      {checklist?.documents.find((d) => d.document_type === 'SHOP_PHOTO')?.is_ocr_passed
+                        ? '✓'
+                        : '3'}
+                    </Text>
+                  </View>
+                  <Text style={styles.stepItemLabel}>Shop Photo</Text>
+                </View>
+                <View style={styles.stepConnector} />
+
+                {/* Step 4: Verification */}
+                <View style={styles.stepItem}>
+                  <View
+                    style={[
+                      styles.stepCircle,
+                      checklist?.is_fully_verified
+                        ? styles.stepCircleCompleted
+                        : checklist?.can_submit_for_verification
+                        ? styles.stepCircleAction
+                        : styles.stepCirclePending,
+                    ]}
+                  >
+                    <Text style={styles.stepCircleText}>
+                      {checklist?.is_fully_verified ? '✓' : '4'}
+                    </Text>
+                  </View>
+                  <Text style={styles.stepItemLabel}>Activation</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Success Celebration Banner if Verified */}
+            {(checklist?.is_fully_verified || verificationSuccess) && (
+              <View style={styles.activationSuccessCard}>
+                <Text style={{ fontSize: 24, textAlign: 'center', marginBottom: 4 }}>🎉</Text>
+                <Text style={styles.activationSuccessTitle}>KYC Verified & Soundbox Activated!</Text>
+                <Text style={styles.activationSuccessDesc}>
+                  NSDL & Bank Penny-Drop simulated verification completed successfully. Your shop is now officially ACTIVE to accept payments.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { marginTop: 12 }]}
+                  onPress={() => setActiveTab('HOME')}
+                >
+                  <Text style={styles.primaryButtonText}>Go to Merchant Dashboard →</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Camera Upload & Document Submitter Card (If not yet fully verified) */}
+            {!checklist?.is_fully_verified && (
+              <View style={styles.card}>
+                <View style={styles.cardHeaderRow}>
+                  <View>
+                    <Text style={styles.cardTitle}>Document Camera Upload</Text>
+                    <Text style={styles.cardSubtitle}>
+                      Snap or select your document for instant mock OCR extraction
+                    </Text>
+                  </View>
+                  <StatusChipNative status="executed" size="sm" label="Mock OCR" />
+                </View>
+
+                {/* Document Type Selector Tabs */}
+                <View style={styles.docTypeSelectorRow}>
+                  {(['PAN_CARD', 'BANK_PROOF', 'SHOP_PHOTO'] as const).map((dtype) => {
+                    const isSelected = uploadDocType === dtype;
+                    const docObj = checklist?.documents.find((d) => d.document_type === dtype);
+                    const isPassed = docObj?.is_ocr_passed;
+                    const isBlurry = checklist?.blurry_documents.includes(dtype);
+                    return (
+                      <TouchableOpacity
+                        key={dtype}
+                        style={[styles.docTypeTab, isSelected && styles.docTypeTabActive]}
+                        onPress={() => {
+                          setUploadDocType(dtype);
+                          setUploadFeedback(null);
+                        }}
+                      >
+                        <Text style={[styles.docTypeTabText, isSelected && styles.docTypeTabTextActive]}>
+                          {dtype === 'PAN_CARD' ? 'PAN Card' : dtype === 'BANK_PROOF' ? 'Bank Proof' : 'Shop Photo'}
+                        </Text>
+                        <Text style={{ fontSize: 10, marginTop: 2 }}>
+                          {isPassed ? '✅ Passed' : isBlurry ? '⚠️ Blurry' : '⏳ Missing'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Upload Action Buttons */}
+                <View style={styles.cameraActionContainer}>
+                  <TouchableOpacity
+                    style={[styles.cameraButtonPrimary, uploading && styles.buttonDisabled]}
+                    disabled={uploading}
+                    onPress={() => handleUploadDocument(false)}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={styles.cameraButtonPrimaryText}>
+                        📸 Take & Upload Clear {uploadDocType.replace('_', ' ')}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.cameraButtonBlurry, uploading && styles.buttonDisabled]}
+                    disabled={uploading}
+                    onPress={() => handleUploadDocument(true)}
+                  >
+                    <Text style={styles.cameraButtonBlurryText}>
+                      ⚠️ Simulate Blurry Photo (Test Quality Rejection)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Feedback / Rejection Alert with specific retry reason */}
+                {uploadFeedback && (
+                  <View
+                    style={[
+                      styles.uploadFeedbackCard,
+                      uploadFeedback.status === 'OCR_FAILED'
+                        ? styles.uploadFeedbackFailed
+                        : styles.uploadFeedbackPassed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.uploadFeedbackTitle,
+                        { color: uploadFeedback.status === 'OCR_FAILED' ? '#B91C1C' : '#047857' },
+                      ]}
+                    >
+                      {uploadFeedback.status === 'OCR_FAILED'
+                        ? '⚠️ Document Rejected by OCR Quality Filter'
+                        : '✓ Document Passed OCR Verification'}
+                    </Text>
+                    <Text style={styles.uploadFeedbackMessage}>
+                      {uploadFeedback.specific_reason || uploadFeedback.message}
+                    </Text>
+                    {uploadFeedback.status === 'OCR_FAILED' && (
+                      <TouchableOpacity
+                        style={styles.retryUploadBtn}
+                        onPress={() => handleUploadDocument(false)}
+                      >
+                        <Text style={styles.retryUploadBtnText}>↺ Retake & Resubmit Sharp Photo</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Authorized Verification Gate Card */}
+            {!checklist?.is_fully_verified && checklist?.can_submit_for_verification && (
+              <View style={styles.verificationGateCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 20 }}>🛡️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.verificationGateTitle}>All 3 Documents Passed OCR!</Text>
+                    <Text style={styles.verificationGateSubtitle}>
+                      Candidate fields extracted. Ready for simulated authorized external verification (NSDL & Penny-Drop).
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.submitVerificationBtn, verifying && styles.buttonDisabled]}
+                  disabled={verifying}
+                  onPress={handleSubmitVerification}
+                >
+                  {verifying ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.submitVerificationBtnText}>
+                      🚀 Submit for Authorized Verification & Activate Shop
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Detailed Document Checklist Status List */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Document Checklist Status</Text>
+              <Text style={[styles.cardSubtitle, { marginBottom: 12 }]}>
+                Authoritative verification state from backend database
+              </Text>
+
+              {checklist?.documents.map((doc) => {
+                const isPassed = doc.is_ocr_passed;
+                const isBlurry = doc.ocr_quality_flag === 'BLURRY';
+                return (
+                  <View key={doc.id || doc.document_type} style={styles.checklistRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.checklistDocName}>
+                          {doc.document_type.replace('_', ' ').toUpperCase()}
+                        </Text>
+                        <StatusChipNative
+                          status={
+                            doc.authorized_verification_status === 'VERIFIED'
+                              ? 'verified'
+                              : isPassed
+                              ? 'executed'
+                              : isBlurry
+                              ? 'needs_human'
+                              : 'awaiting_approval'
+                          }
+                          size="sm"
+                          label={
+                            doc.authorized_verification_status === 'VERIFIED'
+                              ? 'Verified'
+                              : isPassed
+                              ? 'OCR Passed'
+                              : isBlurry
+                              ? 'Blurry / Resubmit'
+                              : 'Missing'
+                          }
+                        />
+                      </View>
+
+                      {doc.rejection_reason && (
+                        <Text style={styles.checklistRejectionText}>
+                          ⚠️ {doc.rejection_reason}
+                        </Text>
+                      )}
+
+                      {doc.ocr_candidate_fields && (
+                        <View style={styles.candidateFieldsBox}>
+                          <Text style={styles.candidateFieldsLabel}>
+                            EXTRACTED CANDIDATE FIELDS (UNTRUSTED):
+                          </Text>
+                          {Object.entries(doc.ocr_candidate_fields).map(([k, v]) => (
+                            <Text key={k} style={styles.candidateFieldItem}>
+                              • {k}: {String(v)}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Action Button */}
+                    {!isPassed && (
+                      <TouchableOpacity
+                        style={styles.checklistActionBtn}
+                        onPress={() => {
+                          setUploadDocType(doc.document_type as any);
+                          setUploadFeedback(null);
+                        }}
+                      >
+                        <Text style={styles.checklistActionBtnText}>
+                          {isBlurry ? 'Resubmit' : 'Upload'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
       {/* TAB 3: PASSBOOK & TAB 4: SETTINGS (Placeholders) */}
       {(activeTab === 'PASSBOOK' || activeTab === 'SETTINGS') && (
         <View style={styles.placeholderTabContent}>
@@ -1265,6 +2089,18 @@ export default function App() {
           </Text>
           <Text style={activeTab === 'HOME' ? styles.tabLabelActive : styles.tabLabel}>
             Home
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabItem}
+          onPress={() => setActiveTab('ONBOARD')}
+        >
+          <Text style={activeTab === 'ONBOARD' ? styles.tabIconActive : styles.tabIcon}>
+            📋
+          </Text>
+          <Text style={activeTab === 'ONBOARD' ? styles.tabLabelActive : styles.tabLabel}>
+            KYC Onboard
           </Text>
         </TouchableOpacity>
 
@@ -2020,6 +2856,107 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
+
+  // Revive & Retention Check-in Styles
+  reviveBannerCard: {
+    marginBottom: spacing.md,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    borderRadius: radii.card,
+    padding: 14,
+    shadowColor: '#B45309',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  reviveInlineCard: {
+    marginTop: 10,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    borderRadius: radii.card,
+    padding: 12,
+  },
+  reviveBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  reviveBannerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  reviveBannerBody: {
+    fontSize: 12,
+    color: '#78350F',
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  reviveOfferPill: {
+    marginTop: 8,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  reviveOfferPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  reviveActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  reviveAcceptBtn: {
+    flex: 1,
+    backgroundColor: colors.paytmBlue,
+    borderRadius: radii.pill,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviveAcceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  reviveDismissBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviveDismissBtnText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  reviveSuccessBox: {
+    marginTop: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 6,
+    padding: 8,
+  },
+  reviveSuccessText: {
+    color: '#065F46',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
   chatTimestamp: {
     fontSize: 9,
     marginTop: 4,
@@ -2293,6 +3230,346 @@ const styles = StyleSheet.create({
   tabIcon: {
     fontSize: 18,
     opacity: 0.6,
+  },
+  demoSelectBtn: {
+    padding: 8,
+    borderRadius: radii.sm,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  demoSelectTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#002E6E',
+  },
+  demoSelectDesc: {
+    fontSize: 10,
+    color: '#4B5563',
+    marginTop: 1,
+  },
+
+  // Onboarding Styles
+  onboardIncompleteBanner: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    borderRadius: radii.card,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  onboardIncompleteTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  onboardIncompleteDesc: {
+    fontSize: 11,
+    color: '#78350F',
+    marginTop: 2,
+  },
+  onboardHeroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    marginBottom: spacing.md,
+  },
+  onboardHeroTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1A1A1A',
+  },
+  onboardHeroSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  stepsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.lg,
+    paddingHorizontal: 4,
+  },
+  stepItem: {
+    alignItems: 'center',
+    width: 60,
+  },
+  stepCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepCircleCompleted: {
+    backgroundColor: '#059669',
+  },
+  stepCircleAction: {
+    backgroundColor: '#00BAF2',
+  },
+  stepCircleError: {
+    backgroundColor: '#DC2626',
+  },
+  stepCirclePending: {
+    backgroundColor: '#E5E7EB',
+  },
+  stepCircleText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  stepItemLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#4B5563',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  stepConnector: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  activationSuccessCard: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  activationSuccessTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#065F46',
+    textAlign: 'center',
+  },
+  activationSuccessDesc: {
+    fontSize: 12,
+    color: '#047857',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  docTypeSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  docTypeTab: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+  },
+  docTypeTabActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#00BAF2',
+  },
+  docTypeTabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  docTypeTabTextActive: {
+    color: '#002E6E',
+    fontWeight: '700',
+  },
+  cameraActionContainer: {
+    gap: 8,
+    marginTop: 4,
+  },
+  cameraButtonPrimary: {
+    backgroundColor: '#00BAF2',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+  },
+  cameraButtonPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  cameraButtonBlurry: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+  },
+  cameraButtonBlurryText: {
+    color: '#92400E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  uploadFeedbackCard: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+  },
+  uploadFeedbackPassed: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  uploadFeedbackFailed: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  uploadFeedbackTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  uploadFeedbackMessage: {
+    fontSize: 11,
+    color: '#4B5563',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  retryUploadBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#DC2626',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
+  },
+  retryUploadBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  verificationGateCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#22C55E',
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  verificationGateTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  verificationGateSubtitle: {
+    fontSize: 11,
+    color: '#166534',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  submitVerificationBtn: {
+    backgroundColor: '#16A34A',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: radii.sm,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  submitVerificationBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  checklistRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  checklistDocName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  checklistRejectionText: {
+    fontSize: 11,
+    color: '#DC2626',
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  candidateFieldsBox: {
+    backgroundColor: '#F9FAFB',
+    padding: 8,
+    borderRadius: radii.sm,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  candidateFieldsLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#4B5563',
+    letterSpacing: 0.5,
+  },
+  candidateFieldItem: {
+    fontSize: 10,
+    color: '#374151',
+    marginTop: 1,
+  },
+  checklistActionBtn: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#00BAF2',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
+  },
+  checklistActionBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#002E6E',
+  },
+  missingItemCardContainer: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: radii.card,
+    padding: spacing.md,
+    marginTop: 8,
+  },
+  missingItemCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  missingItemCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  missingItemReasonText: {
+    fontSize: 11,
+    color: '#78350F',
+    lineHeight: 15,
+  },
+  missingItemActionBtn: {
+    backgroundColor: '#00BAF2',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: radii.pill,
+    alignItems: 'center',
+  },
+  missingItemActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   tabLabel: {
     fontSize: 11,

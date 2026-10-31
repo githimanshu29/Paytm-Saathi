@@ -27,6 +27,20 @@ from app.adapters.settlement import (
     ChargebackLineItem,
     TransactionLineItem,
 )
+from app.adapters.revive import (
+    IReviveAdapter,
+    MockReviveAdapter,
+    MerchantMetricsRecord,
+    MerchantFollowupRecord,
+)
+from app.adapters.onboard import (
+    IOnboardAdapter,
+    MockOnboardAdapter,
+    DocumentItemRecord,
+    OnboardingChecklistRecord,
+    OCRResultRecord,
+    VerificationSubmissionRecord,
+)
 
 __all__ = [
     "ITransactionAdapter",
@@ -50,4 +64,14 @@ __all__ = [
     "FeeLineItem",
     "ChargebackLineItem",
     "TransactionLineItem",
+    "IReviveAdapter",
+    "MockReviveAdapter",
+    "MerchantMetricsRecord",
+    "MerchantFollowupRecord",
+    "IOnboardAdapter",
+    "MockOnboardAdapter",
+    "DocumentItemRecord",
+    "OnboardingChecklistRecord",
+    "OCRResultRecord",
+    "VerificationSubmissionRecord",
 ]

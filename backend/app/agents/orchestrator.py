@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.agents.resolve import ResolveAgent
 from app.agents.fix import FixAgent
 from app.agents.reconcile import ReconcileAgent
+from app.agents.revive import ReviveAgent
+from app.agents.onboard import OnboardAgent
 from app.adapters.speech import MockSpeechAdapter
 from app.policy.audit import audit_log
 
@@ -14,6 +16,8 @@ class SaathiBrainOrchestrator:
     - Specialist 1: Resolve (Failed payments, bank reversals, refund reviews)
     - Specialist 2: Fix (Soundbox diagnostics, remote restart, technician visits)
     - Specialist 3: Reconcile (Settlement breakdown, fee/chargeback audits, dispute cases)
+    - Specialist 4: Revive (Dormant merchant reactivation, root-cause diagnosis, retention check-ins)
+    - Specialist 5: Onboard (KYC closer, untrusted OCR extraction, missing doc chaser, authorized verification)
     """
 
     def __init__(self, db: Session):
@@ -21,6 +25,8 @@ class SaathiBrainOrchestrator:
         self.resolve_agent = ResolveAgent(db)
         self.fix_agent = FixAgent(db)
         self.reconcile_agent = ReconcileAgent(db)
+        self.revive_agent = ReviveAgent(db)
+        self.onboard_agent = OnboardAgent(db)
         self.speech_adapter = MockSpeechAdapter()
 
     def route_and_run(
@@ -108,8 +114,104 @@ class SaathiBrainOrchestrator:
             re.search(r"PAYTM_[A-Z0-9_]+", query_text, re.IGNORECASE)
         )
 
+        # 4. Dormancy / Revive / Retention Keywords -> Revive Agent
+        revive_keywords = [
+            "dormant",
+            "revive",
+            "retention",
+            "booster",
+            "slowdown",
+            "decline",
+            "drop in sales",
+            "sales down",
+            "volume drop",
+            "checkin",
+            "check-in",
+            "kirana booster",
+            "special offer",
+        ]
+        is_revive_intent = any(k in query_clean for k in revive_keywords)
+
+        # 5. Onboarding / KYC Keywords -> Onboard Agent
+        onboard_keywords = [
+            "onboard",
+            "onboarding",
+            "kyc",
+            "document",
+            "documents",
+            "pan",
+            "bank proof",
+            "cheque",
+            "passbook",
+            "shop photo",
+            "store photo",
+            "storefront",
+            "signup",
+            "sign up",
+            "application",
+            "checklist",
+            "blurry",
+            "unreadable",
+            "resubmit",
+            "verify documents",
+            "submit verification",
+            "verification status",
+            "missing document",
+            "missing documents",
+            "password",
+            "otp",
+            "pin",
+            "upi pin",
+        ]
+        is_onboard_intent = any(k in query_clean for k in onboard_keywords)
+
         # Priority routing
-        # Priority A: Settlement / Reconcile intent
+        # Priority A: Onboard / KYC intent (includes credential security gate)
+        if is_onboard_intent:
+            onb_res = self.onboard_agent.run(
+                merchant_id=merchant_id,
+                query_text=query_text,
+                actor_id=actor_id,
+            )
+            speech_res = self.speech_adapter.synthesize(onb_res["agent_reply"], language="hi-IN")
+            return {
+                "agent": "ONBOARD",
+                "reply": onb_res["agent_reply"],
+                "chip_status": onb_res["chip_status"],
+                "branch": onb_res.get("action_taken"),
+                "missing_item_card": onb_res.get("missing_item_card"),
+                "action_card": onb_res.get("missing_item_card"),
+                "breakdown_card": None,
+                "approval_card": None,
+                "checklist": onb_res.get("checklist"),
+                "verification_result": onb_res.get("verification_result"),
+                "speech_audio_base64": speech_res.audio_base64,
+                "speech_duration_seconds": speech_res.duration_seconds,
+            }
+
+        # Priority B: Revive / Retention intent
+        if is_revive_intent:
+            rev_res = self.revive_agent.run(
+                merchant_id=merchant_id,
+                actor_id=actor_id,
+            )
+            speech_res = self.speech_adapter.synthesize(rev_res["agent_reply"], language="hi-IN")
+            return {
+                "agent": "REVIVE",
+                "reply": rev_res["agent_reply"],
+                "chip_status": rev_res["chip_status"],
+                "branch": rev_res.get("branch"),
+                "diagnosed_cause": rev_res.get("diagnosed_cause"),
+                "checkin_card": rev_res.get("checkin_card"),
+                "action_card": rev_res.get("checkin_card"),
+                "breakdown_card": None,
+                "approval_card": None,
+                "followup_data": rev_res.get("followup_data"),
+                "speech_audio_base64": speech_res.audio_base64,
+                "speech_duration_seconds": speech_res.duration_seconds,
+            }
+
+        # Priority B: Settlement / Reconcile intent
         if is_settlement_intent:
             rec_res = self.reconcile_agent.run(
                 merchant_id=merchant_id,
@@ -204,8 +306,8 @@ class SaathiBrainOrchestrator:
         # General Greeting
         greeting_reply = (
             "Namaste! I am Saathi, your Kirana AI teammate. "
-            "I can explain your daily settlement breakdown (Reconcile), investigate failed customer payments (Resolve), "
-            "or diagnose and fix Soundbox issues including remote reboots and technician visits (Fix). "
+            "I can explain your daily settlement breakdown (Reconcile), guide you through onboarding and KYC document verification (Onboard), "
+            "investigate failed customer payments (Resolve), or diagnose and fix Soundbox issues including remote reboots and technician visits (Fix). "
             "How can I help you today?"
         )
         speech_res = self.speech_adapter.synthesize(greeting_reply, language="hi-IN")

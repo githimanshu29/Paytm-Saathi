@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import (
@@ -172,25 +173,31 @@ def get_case_timeline(
             detail=f"Case with ID {case_id} not found.",
         )
 
-    filters = [
-        (AuditEvent.target == case_id),
-        (AuditEvent.target == task.merchant_id),
-        (AuditEvent.actor == task.merchant_id),
-        (AuditEvent.idempotency_key.like(f"%{case_id}%")),
-    ]
-    if getattr(task, "device_id", None):
-        filters.append(AuditEvent.target == task.device_id)
-
-    from sqlalchemy import or_
-    events_query = (
+    case_specific_events = (
         db.query(AuditEvent)
-        .filter(or_(*filters))
+        .filter(or_(AuditEvent.target == case_id, AuditEvent.idempotency_key.like(f"%{case_id}%")))
         .order_by(AuditEvent.created_at.desc())
         .limit(25)
         .all()
     )
-    # Reverse so timeline renders chronologically
-    events_query = list(reversed(events_query))
+
+    merchant_filters = [
+        (AuditEvent.target == task.merchant_id),
+        (AuditEvent.actor == task.merchant_id),
+    ]
+    if getattr(task, "device_id", None):
+        merchant_filters.append(AuditEvent.target == task.device_id)
+
+    merchant_events = (
+        db.query(AuditEvent)
+        .filter(or_(*merchant_filters))
+        .order_by(AuditEvent.created_at.desc())
+        .limit(25)
+        .all()
+    )
+
+    combined_map = {ev.id: ev for ev in (case_specific_events + merchant_events)}
+    events_query = sorted(combined_map.values(), key=lambda x: x.created_at or datetime.min)
 
     # If no specific audit events yet for this exact case ID, fallback to general system audit events for this merchant's session
     if not events_query:

@@ -51,6 +51,7 @@ class MerchantSummaryResponse(BaseModel):
     city: str
     status: str
     kyc_status: str
+    onboarding_status: Optional[str] = "COMPLETED"
     device: Optional[DeviceSummary] = None
     payments: PaymentSummary
     dues: DuesSummary
@@ -91,6 +92,10 @@ class ChatMessageResponse(BaseModel):
     technician_slot: Optional[str] = None
     action_card: Optional[Dict[str, Any]] = None
     breakdown_card: Optional[Dict[str, Any]] = None
+    checkin_card: Optional[Dict[str, Any]] = None
+    missing_item_card: Optional[Dict[str, Any]] = None
+    checklist: Optional[Dict[str, Any]] = None
+    verification_result: Optional[Dict[str, Any]] = None
     settlement_date: Optional[str] = None
     approval_card: Optional[ApprovalCardData] = None
     speech_audio_base64: Optional[str] = None

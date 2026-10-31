@@ -262,7 +262,7 @@ def test_fix_agent_online_device_resolves_verified(db):
 
     assert result["chip_status"] == "verified"
     assert result["step"] == "DEVICE_HEALTHY"
-    assert "ONLINE" in result["agent_reply"]
+    assert "online" in result["agent_reply"].lower()
     assert "88%" in result["agent_reply"]
     assert result["action_card"] is None
 

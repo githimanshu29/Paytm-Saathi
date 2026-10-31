@@ -222,12 +222,14 @@ def send_chat_message(
     merchant = db.query(Merchant).filter_by(id=merchant_id).first()
     city = merchant.city if merchant else "Jaipur"
 
+    history_list = [h.model_dump() for h in (req.history or [])]
     orchestrator = SaathiBrainOrchestrator(db)
     result = orchestrator.route_and_run(
         merchant_id=merchant_id,
         query_text=req.message,
         city=city,
         actor_id=merchant_id,
+        history=history_list,
     )
 
     approval_card_data = None

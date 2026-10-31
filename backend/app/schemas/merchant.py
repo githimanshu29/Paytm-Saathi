@@ -58,8 +58,15 @@ class MerchantSummaryResponse(BaseModel):
     payments: PaymentSummary
     dues: DuesSummary
 
+class ChatHistoryItem(BaseModel):
+    role: str = "user"  # "user" or "assistant"
+    content: str
+    agent: Optional[str] = None
+    step: Optional[str] = None
+
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
+    history: Optional[List[ChatHistoryItem]] = Field(default_factory=list)
 
 class VoiceChatRequest(BaseModel):
     audio_base64: Optional[str] = None

@@ -21,6 +21,18 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        return {
+            "status": "online",
+            "service": settings.PROJECT_NAME,
+            "version": settings.VERSION,
+            "docs": "/docs",
+            "health": "/health",
+            "merchant_mobile_url": "http://localhost:8081",
+            "employee_web_url": "http://127.0.0.1:5173",
+        }
+
     return app
 
 app = create_app()

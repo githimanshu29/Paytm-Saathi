@@ -33,6 +33,7 @@ class RouterState(TypedDict, total=False):
     flagged_patterns: List[str]
     workflow_status: WorkflowStatus
     agent_result: Dict[str, Any]
+    history: Optional[List[Dict[str, Any]]]
 
 
 class SaathiBrainOrchestrator:
@@ -131,10 +132,14 @@ class SaathiBrainOrchestrator:
 
         return builder.compile()
 
-    def classify_utterance(self, query_text: str) -> RouteClassificationResult:
+    def classify_utterance(
+        self,
+        query_text: str,
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> RouteClassificationResult:
         """
         Public pure classification helper.
-        Deterministic classification into AgentRoute enum.
+        Deterministic classification into AgentRoute enum, maintaining multi-turn context.
         """
         text = query_text.strip().lower()
 
@@ -171,11 +176,38 @@ class SaathiBrainOrchestrator:
                     flagged_patterns=[pat],
                 )
 
-        # 3.5. Gemini Intelligent Intent Classifier (Zero-shot / Few-shot semantic understanding)
+        # 3.5. Gemini Intelligent Intent Classifier (Zero-shot / Few-shot semantic understanding with conversation history)
         if gemini_adapter.is_available():
-            llm_result = gemini_adapter.classify_intent(query_text)
+            llm_result = gemini_adapter.classify_intent(query_text, conversation_history=history)
             if llm_result and llm_result.route != AgentRoute.UNCLEAR:
                 return llm_result
+
+        # 3.8. Active Multi-Turn Fix Context Follow-up Guard
+        if history:
+            last_asst = None
+            for item in reversed(history):
+                if item.get("role") in ["assistant", "saathi"]:
+                    last_asst = item
+                    break
+            if last_asst and (
+                last_asst.get("agent") == "FIX"
+                or str(last_asst.get("step", "")).startswith("STEP_")
+                or "soundbox" in str(last_asst.get("content", "")).lower()
+            ):
+                explicit_switches = ["udhaar", "udhar", "settlement", "payout", "kyc", "pan card"]
+                if not any(sw in text for sw in explicit_switches):
+                    fix_followup_clues = [
+                        "nahi", "haan", "yes", "no", "hua", "awaaz", "sound", "button", "light",
+                        "red", "green", "chup", "silent", "restart", "switch", "chala", "bol",
+                        "baji", "technician", "engineer", "help", "next", "kya karu", "step", "ok",
+                        "try kiya", "dabaya", "dekha", "phir bhi", "still"
+                    ]
+                    if any(c in text for c in fix_followup_clues) or len(text.split()) <= 6:
+                        return RouteClassificationResult(
+                            route=AgentRoute.FIX,
+                            confidence=0.96,
+                            reasoning="Follow-up utterance within active Soundbox Fix troubleshooting session.",
+                        )
 
         # 4. FieldMate (Sales Beat / Route Planner / Visits)
         fieldmate_keywords = [
@@ -386,7 +418,8 @@ class SaathiBrainOrchestrator:
 
     def _node_classify_intent(self, state: RouterState) -> Dict[str, Any]:
         query_text = state.get("query_text", "")
-        classification = self.classify_utterance(query_text)
+        history = state.get("history")
+        classification = self.classify_utterance(query_text, history=history)
         return {
             "route": classification.route,
             "confidence": classification.confidence,
@@ -466,6 +499,7 @@ class SaathiBrainOrchestrator:
                 query_text=query_text,
                 city=city,
                 actor_id=actor_id,
+                history=state.get("history"),
             )
             return {
                 "workflow_status": WorkflowStatus.COMPLETED,
@@ -692,6 +726,7 @@ class SaathiBrainOrchestrator:
         city: str = "Jaipur",
         actor_id: str = "merchant_user",
         execution_id: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Unified single entry point replacing all direct per-agent triggers.
@@ -714,6 +749,7 @@ class SaathiBrainOrchestrator:
                 "city": city,
                 "actor_id": actor_id,
                 "execution_id": wf_ctx.execution_id,
+                "history": history or [],
             }
 
             final_state = self.router_graph.invoke(initial_state)

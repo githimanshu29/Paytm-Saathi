@@ -129,6 +129,11 @@ interface ApprovalCardData {
   status: string;
 }
 
+interface FixQuickOption {
+  label: string;
+  textToSend: string;
+}
+
 interface ActionCardData {
   type: string;
   task_id?: string;
@@ -138,6 +143,12 @@ interface ActionCardData {
   assigned_to?: string;
   action?: string;
   status: string;
+  step_number?: number;
+  total_steps?: number;
+  step_title?: string;
+  step_instruction?: string;
+  telemetry_summary?: string;
+  quick_options?: FixQuickOption[];
 }
 
 interface SettlementBreakdownCardData {
@@ -700,13 +711,23 @@ export default function App() {
     setChatSending(true);
 
     try {
+      const historyPayload = chatMessages.slice(-8).map((m) => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.text,
+        agent: m.agent,
+        step: m.step,
+      }));
+
       const res = await fetch(`${API_BASE_URL}/merchant/chat/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          history: historyPayload,
+        }),
       });
 
       if (!res.ok) throw new Error('Chat service unavailable');
@@ -1741,6 +1762,57 @@ export default function App() {
                       </View>
                     )}
 
+                    {/* Action Card: Fix Troubleshooting Step (Fix Agent) */}
+                    {isSaathi && msg.action_card?.type === 'FIX_STEP_CARD' && (
+                      <View style={[styles.techCardContainer, { borderColor: '#00BAF2', backgroundColor: '#F0F9FF' }]}>
+                        <View style={styles.techCardHeader}>
+                          <Text style={[styles.techCardTitle, { color: '#0369A1' }]}>
+                            {msg.action_card.step_title || '🔧 Soundbox Troubleshooting'}
+                          </Text>
+                          <StatusChipNative
+                            status={(msg.action_card.status as StatusType) || 'awaiting_approval'}
+                            size="sm"
+                            label={msg.action_card.status === 'verified' ? 'Verified Resolved' : `Step ${msg.action_card.step_number || 1} of ${msg.action_card.total_steps || 3}`}
+                          />
+                        </View>
+                        {msg.action_card.telemetry_summary && (
+                          <Text style={[styles.techCardMetaText, { color: '#0284C7', marginBottom: 6 }]}>
+                            📡 {msg.action_card.telemetry_summary}
+                          </Text>
+                        )}
+                        {msg.action_card.step_instruction && (
+                          <View style={[styles.techCardNoticeBox, { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
+                            <Text style={[styles.techCardNoticeText, { color: '#0C4A6E', fontWeight: '600' }]}>
+                              👉 {msg.action_card.step_instruction}
+                            </Text>
+                          </View>
+                        )}
+                        {/* Quick Interactive Troubleshooting Buttons */}
+                        {msg.action_card.quick_options && msg.action_card.quick_options.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                            {msg.action_card.quick_options.map((opt, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#002E6E',
+                                  paddingVertical: 7,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 16,
+                                  opacity: chatSending ? 0.6 : 1,
+                                }}
+                                disabled={chatSending}
+                                onPress={() => handleSendMessage(opt.textToSend)}
+                              >
+                                <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+
                     {/* Action Card: Technician Visit Booked (Fix Agent) */}
                     {isSaathi && msg.action_card?.type === 'TECHNICIAN_VISIT_BOOKED' && (
                       <View style={styles.techCardContainer}>
@@ -1759,6 +1831,28 @@ export default function App() {
                             Paytm Field Engineer will arrive on-site with replacement SIM & diagnostic tools. Zero service charge.
                           </Text>
                         </View>
+                        {msg.action_card.quick_options && msg.action_card.quick_options.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                            {msg.action_card.quick_options.map((opt, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#002E6E',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 14,
+                                  opacity: chatSending ? 0.6 : 1,
+                                }}
+                                disabled={chatSending}
+                                onPress={() => handleSendMessage(opt.textToSend)}
+                              >
+                                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     )}
 
@@ -1769,6 +1863,28 @@ export default function App() {
                         <Text style={[styles.techCardSlotText, { color: '#92400E' }]}>
                           Battery: {msg.action_card.battery_level}% · Connect Charger Immediately
                         </Text>
+                        {msg.action_card.quick_options && msg.action_card.quick_options.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                            {msg.action_card.quick_options.map((opt, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#B45309',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 14,
+                                  opacity: chatSending ? 0.6 : 1,
+                                }}
+                                disabled={chatSending}
+                                onPress={() => handleSendMessage(opt.textToSend)}
+                              >
+                                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
                       </View>
                     )}
 

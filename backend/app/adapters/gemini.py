@@ -109,7 +109,11 @@ class GeminiAdapter:
         """Returns True if Gemini SDK and API key are configured and active."""
         return GENAI_AVAILABLE and bool(self.api_key) and self.client is not None
 
-    def classify_intent(self, query_text: str) -> Optional[RouteClassificationResult]:
+    def classify_intent(
+        self,
+        query_text: str,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[RouteClassificationResult]:
         """
         Classifies an arbitrary natural language query using Gemini structured output.
         Returns RouteClassificationResult if successful, or None on failure to allow deterministic fallback.
@@ -117,7 +121,16 @@ class GeminiAdapter:
         if not self.is_available():
             return None
 
-        prompt = f"Merchant Utterance: \"{query_text}\"\nClassify this intent accurately."
+        history_context = ""
+        if conversation_history:
+            turns = []
+            for item in conversation_history[-4:]:
+                role = "Merchant" if item.get("role") in ["user", "merchant"] else "Saathi"
+                turns.append(f"{role}: {item.get('content', '')}")
+            if turns:
+                history_context = "Recent Conversation History:\n" + "\n".join(turns) + "\n\n"
+
+        prompt = f"{history_context}Merchant Latest Utterance: \"{query_text}\"\nClassify this intent accurately."
         config = types.GenerateContentConfig(
             system_instruction=self.ROUTER_SYSTEM_INSTRUCTION,
             temperature=0.1,
@@ -177,20 +190,32 @@ class GeminiAdapter:
         branch: str,
         ground_truth: Dict[str, Any],
         user_query: str = "",
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[LLMExplanationResult]:
         """
         Synthesizes a friendly, bilingual response strictly grounded in verified DB facts.
+        Maintains active conversational context with the merchant.
         Returns LLMExplanationResult if successful, or None for deterministic string fallback.
         """
         if not self.is_available():
             return None
 
+        history_context = ""
+        if conversation_history:
+            turns = []
+            for item in conversation_history[-6:]:
+                role = "Merchant" if item.get("role") in ["user", "merchant"] else "Saathi"
+                turns.append(f"{role}: {item.get('content', '')}")
+            if turns:
+                history_context = "Conversation History So Far:\n" + "\n".join(turns) + "\n\n"
+
         prompt = (
             f"Agent: {agent_name}\n"
             f"Branch: {branch}\n"
-            f"User Query: {user_query}\n"
-            f"Verified Ground Truth Facts:\n{json.dumps(ground_truth, default=str, indent=2)}\n\n"
-            f"Write the natural, grounded response."
+            f"{history_context}"
+            f"Merchant Latest Query/Update: {user_query}\n"
+            f"Verified Ground Truth Facts & Actions:\n{json.dumps(ground_truth, default=str, indent=2)}\n\n"
+            f"Write the natural, grounded response acknowledging previous context and guiding the next step clearly."
         )
 
         config = types.GenerateContentConfig(

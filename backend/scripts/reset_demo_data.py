@@ -4,6 +4,7 @@ import sys
 # Ensure backend root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.db.models import (
     Tenant,
@@ -28,6 +29,7 @@ from app.db.models import (
 from scripts.seed_demo_data import seed_demo_data
 
 def reset_demo_data():
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         print("Resetting database demo state...")

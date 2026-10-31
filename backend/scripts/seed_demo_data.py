@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.db.session import SessionLocal
+from app.db.base import Base
+from app.db.session import engine, SessionLocal
 from app.db.models import (
     Tenant,
     Merchant,
@@ -30,6 +31,7 @@ from app.db.models import (
 from app.core.security import hash_password
 
 def seed_demo_data():
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)

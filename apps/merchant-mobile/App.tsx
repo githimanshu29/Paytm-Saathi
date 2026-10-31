@@ -134,6 +134,31 @@ interface FixQuickOption {
   textToSend: string;
 }
 
+interface VasooliLedgerCustomer {
+  name: string;
+  receivable_id?: string;
+  amount_formatted: string;
+  amount_paise?: number;
+  status: string;
+  consent_status?: string;
+  is_disputed?: boolean;
+  notes?: string;
+  recommended_action?: string;
+  quick_action_label?: string;
+  quick_action_query?: string;
+}
+
+interface ResolveDisputeItem {
+  customer_name: string;
+  amount_formatted: string;
+  utr: string;
+  bank_code: string;
+  status: string;
+  recommendation: string;
+  quick_action_label: string;
+  quick_action_query: string;
+}
+
 interface ActionCardData {
   type: string;
   task_id?: string;
@@ -149,6 +174,28 @@ interface ActionCardData {
   step_instruction?: string;
   telemetry_summary?: string;
   quick_options?: FixQuickOption[];
+  total_outstanding_formatted?: string;
+  total_recovered_formatted?: string;
+  total_receivables_count?: number;
+  top_debtor?: {
+    name: string;
+    amount_formatted: string;
+    recommendation?: string;
+  };
+  customers?: VasooliLedgerCustomer[];
+  splits?: Array<{ part: number; amount_paise: number; amount_formatted?: string; due_date?: string }>;
+  proposal_summary?: string;
+  customer_name?: string;
+  total_amount_formatted?: string;
+  // Resolve Dispute Card extensions
+  total_investigations?: number;
+  summary_metrics?: {
+    auto_reversal_count?: number;
+    stuck_count?: number;
+    fraud_count?: number;
+    confirmed_success_count?: number;
+  };
+  transactions?: ResolveDisputeItem[];
 }
 
 interface SettlementBreakdownCardData {
@@ -166,6 +213,8 @@ interface SettlementBreakdownCardData {
   bank_utr?: string;
   dispute_case_id?: string;
   evidence_status?: string;
+  fee_items?: Array<{ id?: string; fee_type?: string; amount_inr?: string; description?: string }>;
+  quick_options?: Array<{ label: string; textToSend: string }>;
 }
 
 interface ReviveCheckinCardData {
@@ -1888,6 +1937,385 @@ export default function App() {
                       </View>
                     )}
 
+                    {/* Action Card: Resolve Payment Disputes & Failed Transactions Hub */}
+                    {isSaathi && msg.action_card?.type === 'RESOLVE_DISPUTE_CARD' && (
+                      <View style={[styles.techCardContainer, { borderColor: '#0284C7', backgroundColor: '#F0F9FF' }]}>
+                        {/* Header */}
+                        <View style={styles.techCardHeader}>
+                          <Text style={[styles.techCardTitle, { color: '#0369A1' }]}>
+                            🔍 Payment Dispute & Failed Transactions
+                          </Text>
+                          <StatusChipNative
+                            status="verified"
+                            size="sm"
+                            label={`${msg.action_card.total_investigations || 4} Cases Logged`}
+                          />
+                        </View>
+
+                        {/* Summary Metrics Row */}
+                        <View style={{ flexDirection: 'row', gap: 6, marginVertical: 8 }}>
+                          <View style={{ flex: 1, backgroundColor: '#FFFBEB', padding: 6, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A' }}>
+                            <Text style={{ fontSize: 9, color: '#92400E', fontWeight: '700' }}>IN REVERSAL</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#B45309' }}>1 (₹250)</Text>
+                            <Text style={{ fontSize: 9, color: '#78350F' }}>24-48h SLA</Text>
+                          </View>
+                          <View style={{ flex: 1, backgroundColor: '#FEF2F2', padding: 6, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                            <Text style={{ fontSize: 9, color: '#991B1B', fontWeight: '700' }}>STUCK</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#DC2626' }}>1 (₹500)</Text>
+                            <Text style={{ fontSize: 9, color: '#991B1B' }}>Review Ready</Text>
+                          </View>
+                          <View style={{ flex: 1, backgroundColor: '#F0FDF4', padding: 6, borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0' }}>
+                            <Text style={{ fontSize: 9, color: '#166534', fontWeight: '700' }}>SUCCESS</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#16A34A' }}>1 (₹320)</Text>
+                            <Text style={{ fontSize: 9, color: '#166534' }}>Credited</Text>
+                          </View>
+                          <View style={{ flex: 1, backgroundColor: '#FAF5FF', padding: 6, borderRadius: 8, borderWidth: 1, borderColor: '#E9D5FF' }}>
+                            <Text style={{ fontSize: 9, color: '#6D28D9', fontWeight: '700' }}>SECURITY</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#7C3AED' }}>1 (₹1,200)</Text>
+                            <Text style={{ fontSize: 9, color: '#6D28D9' }}>Escalated</Text>
+                          </View>
+                        </View>
+
+                        {/* Transactions List */}
+                        {msg.action_card.transactions && msg.action_card.transactions.length > 0 && (
+                          <View style={{ marginTop: 2 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#334155', marginBottom: 6 }}>
+                              AUTHORITATIVE BANK INVESTIGATION QUEUE:
+                            </Text>
+                            {msg.action_card.transactions.map((txItem, txIdx) => (
+                              <View
+                                key={txIdx}
+                                style={{
+                                  backgroundColor: '#FFFFFF',
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 1,
+                                  borderColor: '#E2E8F0',
+                                  marginBottom: 6,
+                                }}
+                              >
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#0F172A' }}>
+                                      {txItem.customer_name}
+                                    </Text>
+                                    <View
+                                      style={{
+                                        backgroundColor:
+                                          txItem.bank_code === 'U30_AUTO_REVERSAL'
+                                            ? '#FEF3C7'
+                                            : txItem.bank_code === 'U69_REVERSAL_STUCK'
+                                            ? '#FEF2F2'
+                                            : txItem.bank_code === '00_SUCCESS'
+                                            ? '#F0FDF4'
+                                            : '#F5F3FF',
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 2,
+                                        borderRadius: 4,
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: '700',
+                                          color:
+                                            txItem.bank_code === 'U30_AUTO_REVERSAL'
+                                              ? '#B45309'
+                                              : txItem.bank_code === 'U69_REVERSAL_STUCK'
+                                              ? '#DC2626'
+                                              : txItem.bank_code === '00_SUCCESS'
+                                              ? '#16A34A'
+                                              : '#7C3AED',
+                                        }}
+                                      >
+                                        {txItem.bank_code === 'U30_AUTO_REVERSAL'
+                                          ? 'Auto-Reversal (24-48h)'
+                                          : txItem.bank_code === 'U69_REVERSAL_STUCK'
+                                          ? 'Reversal Stuck (>48h)'
+                                          : txItem.bank_code === '00_SUCCESS'
+                                          ? 'Confirmed Credited'
+                                          : 'Security Hold'}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#002E6E' }}>
+                                    {txItem.amount_formatted}
+                                  </Text>
+                                </View>
+
+                                <Text style={{ fontSize: 10, color: '#64748B', marginTop: 2 }}>
+                                  Ref: {txItem.utr} · Code: {txItem.bank_code}
+                                </Text>
+
+                                <Text style={{ fontSize: 11, color: '#334155', fontStyle: 'italic', marginTop: 3 }}>
+                                  👉 {txItem.recommendation}
+                                </Text>
+
+                                {txItem.quick_action_label && txItem.quick_action_query && (
+                                  <View style={{ marginTop: 6, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                                    <TouchableOpacity
+                                      style={{
+                                        backgroundColor: '#002E6E',
+                                        paddingVertical: 5,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 6,
+                                        opacity: chatSending ? 0.6 : 1,
+                                      }}
+                                      disabled={chatSending}
+                                      onPress={() => handleSendMessage(txItem.quick_action_query)}
+                                    >
+                                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
+                                        {txItem.quick_action_label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Quick Interactive Options */}
+                        {msg.action_card.quick_options && msg.action_card.quick_options.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                            {msg.action_card.quick_options.map((opt, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#002E6E',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 14,
+                                  opacity: chatSending ? 0.6 : 1,
+                                }}
+                                disabled={chatSending}
+                                onPress={() => handleSendMessage(opt.textToSend)}
+                              >
+                                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Action Card: Vasooli Store Credit Ledger (Vasooli Agent) */}
+                    {isSaathi && msg.action_card?.type === 'VASOOLI_LEDGER_CARD' && (
+                      <View style={[styles.techCardContainer, { borderColor: '#00BAF2', backgroundColor: '#F8FAFC' }]}>
+                        {/* Header */}
+                        <View style={styles.techCardHeader}>
+                          <Text style={[styles.techCardTitle, { color: '#002E6E' }]}>
+                            📒 Store Credit Ledger (Khata)
+                          </Text>
+                          <StatusChipNative
+                            status="verified"
+                            size="sm"
+                            label={`Total: ${msg.action_card.total_outstanding_formatted || '₹4,000.00'}`}
+                          />
+                        </View>
+
+                        {/* Summary Metrics Row */}
+                        <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
+                          <View style={{ flex: 1, backgroundColor: '#FEF2F2', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                            <Text style={{ fontSize: 10, color: '#991B1B', fontWeight: '700' }}>OUTSTANDING</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '800', color: '#DC2626' }}>
+                              {msg.action_card.total_outstanding_formatted}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: '#64748B' }}>{msg.action_card.total_receivables_count || 4} accounts</Text>
+                          </View>
+                          <View style={{ flex: 1, backgroundColor: '#F0FDF4', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0' }}>
+                            <Text style={{ fontSize: 10, color: '#166534', fontWeight: '700' }}>RECOVERED TODAY</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '800', color: '#16A34A' }}>
+                              {msg.action_card.total_recovered_formatted || '₹650.00'}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: '#166534' }}>✓ 1 settled</Text>
+                          </View>
+                        </View>
+
+                        {/* Top Debtor Banner */}
+                        {msg.action_card.top_debtor && (
+                          <View style={{ backgroundColor: '#FEF3C7', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FDE68A', marginBottom: 8 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: '#92400E' }}>
+                                👑 Top Debtor: {msg.action_card.top_debtor.name}
+                              </Text>
+                              <Text style={{ fontSize: 13, fontWeight: '800', color: '#B45309' }}>
+                                {msg.action_card.top_debtor.amount_formatted}
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: 11, color: '#78350F', marginTop: 3 }}>
+                              {msg.action_card.top_debtor.recommendation}
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* Customer List */}
+                        {msg.action_card.customers && msg.action_card.customers.length > 0 && (
+                          <View style={{ marginTop: 4 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569', marginBottom: 6 }}>
+                              CUSTOMER BREAKDOWN & ACTIONS:
+                            </Text>
+                            {msg.action_card.customers.map((c, cIdx) => (
+                              <View
+                                key={cIdx}
+                                style={{
+                                  backgroundColor: '#FFFFFF',
+                                  padding: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 1,
+                                  borderColor: '#E2E8F0',
+                                  marginBottom: 6,
+                                }}
+                              >
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#0F172A' }}>
+                                      {c.name}
+                                    </Text>
+                                    <View
+                                      style={{
+                                        backgroundColor:
+                                          c.status === 'DISPUTED'
+                                            ? '#FEF2F2'
+                                            : c.status === 'REVOKED'
+                                            ? '#FFF7ED'
+                                            : c.status === 'SPLIT_CANDIDATE'
+                                            ? '#F5F3FF'
+                                            : '#F0FDF4',
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 2,
+                                        borderRadius: 4,
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: '700',
+                                          color:
+                                            c.status === 'DISPUTED'
+                                              ? '#DC2626'
+                                              : c.status === 'REVOKED'
+                                              ? '#EA580C'
+                                              : c.status === 'SPLIT_CANDIDATE'
+                                              ? '#7C3AED'
+                                              : '#16A34A',
+                                        }}
+                                      >
+                                        {c.status === 'DISPUTED'
+                                          ? 'Dispute Paused'
+                                          : c.status === 'REVOKED'
+                                          ? 'In-Store Only'
+                                          : c.status === 'SPLIT_CANDIDATE'
+                                          ? 'Split Eligible'
+                                          : 'Remindable'}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#002E6E' }}>
+                                    {c.amount_formatted}
+                                  </Text>
+                                </View>
+
+                                {c.notes && (
+                                  <Text style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                                    Item: {c.notes}
+                                  </Text>
+                                )}
+
+                                {c.recommended_action && (
+                                  <Text style={{ fontSize: 11, color: '#334155', fontStyle: 'italic', marginTop: 2 }}>
+                                    👉 {c.recommended_action}
+                                  </Text>
+                                )}
+
+                                {c.quick_action_label && c.quick_action_query && (
+                                  <View style={{ marginTop: 6, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                                    <TouchableOpacity
+                                      style={{
+                                        backgroundColor: '#002E6E',
+                                        paddingVertical: 5,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 6,
+                                        opacity: chatSending ? 0.6 : 1,
+                                      }}
+                                      disabled={chatSending}
+                                      onPress={() => handleSendMessage(c.quick_action_query!)}
+                                    >
+                                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
+                                        {c.quick_action_label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        {/* Quick Interactive Chips */}
+                        {msg.action_card.quick_options && msg.action_card.quick_options.length > 0 && (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                            {msg.action_card.quick_options.map((opt, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={{
+                                  backgroundColor: '#002E6E',
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 14,
+                                  opacity: chatSending ? 0.6 : 1,
+                                }}
+                                disabled={chatSending}
+                                onPress={() => handleSendMessage(opt.textToSend)}
+                              >
+                                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Action Card: Vasooli Installment Split Proposal */}
+                    {isSaathi && msg.action_card?.type === 'VASOOLI_SPLIT_CARD' && (
+                      <View style={[styles.techCardContainer, { borderColor: '#7C3AED', backgroundColor: '#FAF5FF' }]}>
+                        <View style={styles.techCardHeader}>
+                          <Text style={[styles.techCardTitle, { color: '#6D28D9' }]}>
+                            ➗ Installment Split Proposal
+                          </Text>
+                          <StatusChipNative status="awaiting_approval" size="sm" label="Approval Required" />
+                        </View>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#5B21B6', marginVertical: 4 }}>
+                          {msg.action_card.customer_name}: {msg.action_card.total_amount_formatted}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#4C1D95', marginBottom: 6 }}>
+                          {msg.action_card.proposal_summary}
+                        </Text>
+                        {msg.action_card.splits && (
+                          <View style={{ backgroundColor: '#FFFFFF', padding: 8, borderRadius: 6, marginBottom: 8, borderWidth: 1, borderColor: '#E9D5FF' }}>
+                            {msg.action_card.splits.map((s, sIdx) => (
+                              <View key={sIdx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                <Text style={{ fontSize: 12, color: '#374151' }}>Part {s.part} (Due in {s.part * 30} days)</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#6D28D9' }}>{s.amount_formatted || `₹${s.amount_paise / 100}`}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                        <View style={styles.approvalActionRow}>
+                          <TouchableOpacity
+                            style={[styles.approvalApproveBtn, { backgroundColor: '#7C3AED' }]}
+                            onPress={() => handleSendMessage(`Confirm split plan for ${msg.action_card?.customer_name}`)}
+                          >
+                            <Text style={styles.approvalApproveBtnText}>✓ Confirm Installment Schedule</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+
                     {/* Structured Settlement Breakdown Card (Reconcile Agent) */}
                     {isSaathi && (msg.breakdown_card || (msg.action_card && msg.action_card.type === 'SETTLEMENT_BREAKDOWN')) && (() => {
                       const card = msg.breakdown_card || (msg.action_card as any);
@@ -1948,6 +2376,18 @@ export default function App() {
                             </Text>
                           )}
 
+                          {card.fee_items && card.fee_items.length > 0 && (
+                            <View style={{ marginTop: 8, padding: 8, backgroundColor: '#F8FAFC', borderRadius: radii.sm, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569', marginBottom: 4 }}>💡 Verified Service Charges:</Text>
+                              {card.fee_items.map((f: any, idx: number) => (
+                                <View key={f.id || idx} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                                  <Text style={{ fontSize: 11, color: '#64748B' }}>• {f.description || f.fee_type}</Text>
+                                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#B91C1C' }}>-{f.amount_inr}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+
                           {/* Anomaly Dispute Case Banner & Evidence Action */}
                           {!card.is_reconciled && (
                             <View style={styles.settlementDisputeNoticeBox}>
@@ -1976,6 +2416,27 @@ export default function App() {
                                   </Text>
                                 </View>
                               )}
+                            </View>
+                          )}
+
+                          {card.quick_options && card.quick_options.length > 0 && (
+                            <View style={{ marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                              {card.quick_options.map((opt: any, idx: number) => (
+                                <TouchableOpacity
+                                  key={idx}
+                                  style={{
+                                    backgroundColor: '#F0F9FF',
+                                    borderWidth: 1,
+                                    borderColor: '#BAE6FD',
+                                    paddingVertical: 5,
+                                    paddingHorizontal: 9,
+                                    borderRadius: radii.pill,
+                                  }}
+                                  onPress={() => handleSendMessage(opt.textToSend)}
+                                >
+                                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#0369A1' }}>{opt.label}</Text>
+                                </TouchableOpacity>
+                              ))}
                             </View>
                           )}
                         </View>

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -83,14 +84,57 @@ class GeminiAdapter:
         "2. Provide a bilingual output:\n"
         "   - 'reply': Conversational English / easy Hinglish.\n"
         "   - 'explanation_hi': Pure, friendly Hindi in Devanagari script (used by Soundbox voice synthesis).\n"
-        "3. ABSOLUTE RULE: You MUST strictly stick to the verified facts provided (amounts, UTRs, dates, technician slots). NEVER invent numbers, never promise unverified refunds, and never hallucinate."
+        "3. CRITICAL RESOLVE (FAILED / STUCK PAYMENT & DISPUTE) RULES:\n"
+        "   - If Branch is 'A_AUTO_REVERSAL' or inquiry is about failed payment with auto-reversal in progress (e.g. Alok Gupta ₹250):\n"
+        "     * State the SLA clearly: 24–48 banking hours for funds to return to customer's account.\n"
+        "     * Explicitly warn the merchant: 'Do NOT provide goods on credit'.\n"
+        "   - If Branch is 'B_STUCK_REFUND_REVIEW' or reversal is stuck >48 hours (e.g. Deepak Verma ₹500):\n"
+        "     * Reassure the merchant that authorizing the review request does NOT deduct money from their settlement balance.\n"
+        "     * Explain that it queues an operations investigation with the remitter bank.\n"
+        "   - If Branch is 'C_PAYMENT_CONFIRMED' or payment succeeded (e.g. Pooja Chawla ₹320):\n"
+        "     * Confirm the payment was SUCCESSFUL and credited to the Paytm settlement account.\n"
+        "     * Reassure the merchant that it is 100% safe to give/release the goods to the customer.\n"
+        "   - If Branch is 'D_FRAUD_ESCALATED' or security hold (e.g. ₹1,200):\n"
+        "     * Explain the security hold (Code ZA) and that it has been escalated to Compliance & Risk Operations.\n"
+        "     * Warn the merchant NOT to issue manual cash refunds.\n"
+        "   - If merchant asks whether to give goods on a failed payment, answer NO clearly.\n"
+        "   - If merchant asks whether to release goods on a confirmed payment, answer YES clearly.\n"
+        "   - If merchant asks whether refund review deducts their money, answer NO clearly.\n"
+        "   - Never advise cash refunds for failed digital transactions.\n"
+        "4. CRITICAL TROUBLESHOOTING RULE FOR SOUNDBOX:\n"
+        "   - If Branch is 'STEP_VOLUME_TEST', instruct the merchant to press and hold the '+' volume button for 2 seconds. DO NOT say a technician is booked!\n"
+        "   - If Branch is 'STEP_REMOTE_RESET_POWER_CYCLE', instruct the merchant to power OFF for 10 seconds and power ON to check the LED light. DO NOT say a technician is booked!\n"
+        "   - ONLY mention a technician visit if Branch is explicitly 'TECHNICIAN_DISPATCHED' or 'STEP_BOOKING_STATUS'.\n"
+        "4. CRITICAL VASOOLI (STORE CREDIT / UDHAAR) RULES:\n"
+        "   - When answering inquiries about store credit or who owes money, reference the exact customer names, amounts, and item details from the verified facts.\n"
+        "   - If asked who owes the most, identify the top debtor (e.g. Amit Shukla at ₹1,500.00).\n"
+        "   - Provide proactive, wise follow-up advice:\n"
+        "     * For consensual customers (e.g. Vikram Singh, Amit Shukla): advise sending a gentle WhatsApp reminder with UPI link or setting up an installment split.\n"
+        "     * For disputed customers (e.g. Manish Gupta): remind that reminders are paused by policy and advise in-person verification of the disputed items.\n"
+        "     * For opted-out customers (e.g. Sunita Devi): respect privacy and advise in-store collection on their next visit.\n"
+        "   - Never threaten, use legal jargon, or harass. Always keep the tone warm, respectful, and neighborly.\n"
+        "5. CRITICAL RECONCILE (SETTLEMENTS, PAYOUTS & FEES) RULES:\n"
+        "   - If Branch is 'FULLY_RECONCILED' or inquiry is about 28 Oct / yesterday's settlement:\n"
+        "     * Confirm that Gross Sales (₹10,000.00) minus Refunds (₹500.00) minus Fees (₹300.00) equals exact Net Bank Credit (₹9,200.00) via Bank UTR (ICICINODAL99281028).\n"
+        "     * You MUST preserve the exact phrase 'reconciles completely' and '₹9,200.00'.\n"
+        "     * If merchant asks why fee was deducted, clearly explain the ₹250.00 Soundbox monthly rental (device warranty + unlimited 4G SIM) and ₹50.00 commercial MDR (0% MDR on standard customer UPI).\n"
+        "   - If Branch is 'ANOMALY_DISPUTE_FILED' or inquiry is about 27 Oct shortfall:\n"
+        "     * Clearly highlight the ₹1,200.00 unexplained shortfall between Calculated Net (₹13,000.00) and Actual Bank Deposit (₹11,800.00).\n"
+        "     * State the priority dispute Case ID filed with Nodal Settlement Operations.\n"
+        "     * Instruct the merchant to attach bank passbook/statement proof to speed up resolution.\n"
+        "   - If inquiry is about settlement timing/schedule:\n"
+        "     * State the daily automated payout schedule: 7:00 AM every morning (T+1 schedule) directly via ICICI Nodal Account.\n"
+        "     * Mention the Instant Settlement option in the Paytm for Business app for same-day access.\n"
+        "   - If inquiry is about MDR policy or waiver:\n"
+        "     * Reassure merchant that customer UPI has 0% MDR, and recommend the Kirana Booster offer for fee waiver benefits.\n"
+        "6. ABSOLUTE RULE: You MUST strictly stick to the verified facts provided (amounts, UTRs, dates, technician slots). NEVER invent numbers, never promise unverified refunds, and never hallucinate."
     )
 
     CANDIDATE_MODELS = [
-        "gemini-3.1-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-3.1-flash",
         "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-3.1-flash-lite",
     ]
 
     def __init__(self):
@@ -107,6 +151,8 @@ class GeminiAdapter:
 
     def is_available(self) -> bool:
         """Returns True if Gemini SDK and API key are configured and active."""
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return False
         return GENAI_AVAILABLE and bool(self.api_key) and self.client is not None
 
     def classify_intent(

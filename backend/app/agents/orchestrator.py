@@ -237,6 +237,8 @@ class SaathiBrainOrchestrator:
         vasooli_keywords = [
             "udhaar",
             "udhar",
+            "udhari",
+            "udhare",
             "baki",
             "baaki",
             "khata",
@@ -245,8 +247,10 @@ class SaathiBrainOrchestrator:
             "vasooli",
             "credit ledger",
             "store credit",
-            "remind customer",
+            "reminder",
+            "remind",
             "polite reminder",
+            "remind customer",
             "bought on credit",
             "bought on udhaar",
             "bought on udhar",
@@ -259,6 +263,18 @@ class SaathiBrainOrchestrator:
             "hisaab",
             "split payment",
             "installment",
+            "kist",
+            "kiston",
+            "chukane",
+            "chukao",
+            "kiska udhar",
+            "kiska baki",
+            "top udhar",
+            "top debtor",
+            "debtor",
+            "debtors",
+            "yaad dilao",
+            "sabse jyada udhar",
         ]
         # Ignore if strictly settlement query
         if any(k in text for k in vasooli_keywords) and not ("settlement" in text or "mdr" in text):
@@ -326,15 +342,32 @@ class SaathiBrainOrchestrator:
             "payout",
             "mismatch",
             "shortfall",
+            "discrepancy",
+            "discrepancies",
             "ledger difference",
             "bank credit",
             "fees and chargebacks",
             "fees",
+            "fee",
             "chargeback",
             "yesterday's settlement",
             "daily settlement breakdown",
             "mdr",
             "unreconciled",
+            "meri fees",
+            "kyu kati",
+            "kyun kati",
+            "fee kyu",
+            "fees kyu",
+            "paisa kyu kata",
+            "soundbox rental",
+            "rental charge",
+            "kab aayega",
+            "payout timing",
+            "settlement timing",
+            "bank me kab",
+            "kam aaya",
+            "kam mila",
         ]
         if any(k in text for k in settlement_keywords):
             return RouteClassificationResult(
@@ -470,6 +503,7 @@ class SaathiBrainOrchestrator:
                 merchant_id=merchant_id,
                 query_text=query_text,
                 actor_id=actor_id,
+                history=state.get("history"),
             )
             speech_text = res.get("explanation_hi") or res["agent_reply"]
             speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
@@ -485,7 +519,7 @@ class SaathiBrainOrchestrator:
                     "tx_ref": res.get("tx_ref"),
                     "case_id": res.get("case_id"),
                     "approval_card": res.get("approval_card"),
-                    "action_card": None,
+                    "action_card": res.get("action_card"),
                     "breakdown_card": None,
                     "speech_audio_base64": speech.audio_base64,
                     "speech_duration_seconds": speech.duration_seconds,
@@ -525,6 +559,7 @@ class SaathiBrainOrchestrator:
                 merchant_id=merchant_id,
                 query_text=query_text,
                 actor_id=actor_id,
+                history=state.get("history"),
             )
             speech_text = res.get("explanation_hi") or res["agent_reply"]
             speech = self.speech_adapter.synthesize(speech_text, language="hi-IN")
@@ -641,7 +676,7 @@ class SaathiBrainOrchestrator:
                     "chip_status": res.get("chip_status", "verified"),
                     "branch": res.get("action_type", "PARSE_QUERY"),
                     "approval_card": res.get("approval_card"),
-                    "vasooli_card": res.get("vasooli_card"),
+                    "vasooli_card": res.get("vasooli_card") or res.get("approval_card"),
                     "action_card": res.get("action_card") or res.get("approval_card"),
                     "breakdown_card": None,
                     "speech_audio_base64": speech.audio_base64,

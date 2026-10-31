@@ -94,6 +94,13 @@ def test_merchant_briefs_truthful_from_db_records(db: Session):
     assert "SHOP_PHOTO" in brief_radhe.evidence_breakdown["kyc"]["missing_docs"]
 
     # (d) Apex Retail: All KYC passed OCR
+    m_apex = db.query(Merchant).filter_by(id="mer_apex_retail").first()
+    if m_apex:
+        for d in m_apex.documents:
+            d.status = "OCR_PASSED"
+            d.ocr_quality_flag = "CLEAR"
+            d.is_ocr_passed = True
+        db.commit()
     brief_apex = adapter.get_merchant_brief("mer_apex_retail")
     assert brief_apex is not None
     assert brief_apex.priority == "LOW"

@@ -40,65 +40,142 @@ pnpm start
 
 ---
 
-### Demo 1: Resolve Agent (Payment Reversals & Stuck Refund Governance)
-*Goal: Prove that PENDING transactions never auto-refund, while stuck bank reversals create structured approval cards.*
+### Demo 1: Resolve Agent (Payment Reversals, Dispute Hub & Stuck Refund Governance)
+*Goal: Prove that PENDING transactions never auto-refund, stuck bank reversals create structured approval cards, and merchants receive instant advisory clarity.*
 
-1. **Auto-Reversal In-Progress (Branch A)**:
+1. **Dispute Overview Hub (Interactive Investigation Queue)**:
+   - In **Merchant Mobile** Chat, type:
+     > *"Show me all failed payments today"*
+   - **Observe**:
+     - Chip displays `VERIFIED` (#0B8457).
+     - Renders interactive `RESOLVE_DISPUTE_CARD` featuring a 4-pill metric summary (Auto-Reversing, Stuck Reversals, Confirmed, Security Holds).
+     - Live queue listing Alok Gupta (₹250), Deepak Verma (₹500), Pooja Chawla (₹320), and Fraud Check (₹1,200).
+     - Provides 1-tap quick action buttons for instant follow-up queries.
+
+2. **Auto-Reversal In-Progress (Branch A) & Merchant Advisory**:
    - In **Merchant Mobile** Chat, type:
      > *"Customer Alok says ₹250 failed, did money get deducted?"*
    - **Observe**:
      - Chip displays `VERIFIED` (#0B8457).
      - Agent explains NPCI U30 24–48 banking hours rule.
      - Warning: *"Do NOT provide goods on credit until status confirms."*
+   - Follow-up conversational question:
+     > *"Should I give goods to Alok?"*
+   - **Observe**:
+     - Saathi directly and authoritatively advises: *"No, do NOT provide goods on credit! The payment is still with the remitter bank and will auto-reverse."*
 
-2. **Stuck Bank Reversal (Branch B & R2 Approval Gate)**:
+3. **Stuck Bank Reversal (Branch B & R2 Approval Gate)**:
    - In **Merchant Mobile** Chat, type:
      > *"Deepak Verma payment of ₹500 is stuck for 3 days"*
    - **Observe**:
      - Chip displays `AWAITING_APPROVAL` (#B45309).
      - Concrete preview card appears showing UTR `PAYTM_STUCK_881920`, ₹500.00, and explanation: *"Initiating bank review does NOT deduct from your settlement balance."*
-     - Click **"Approve Refund Review"**.
+   - Merchant question:
+     > *"Will refund review deduct from my settlement balance?"*
+   - **Observe**:
+     - Saathi clearly reassures: *"No! Authorizing this review does NOT deduct from your settlement balance. It queues an operations investigation with the remitter bank."*
+   - Click **"Approve Refund Review"**.
+   - **Observe**:
      - Status updates instantly to `EXECUTED` (#0077A8).
    - In **Employee Web**, click **Cases & Tasks**:
      - New task appears: *"Refund Review Request: ₹500.00 (PAYTM_STUCK_881920)"*.
 
----
-
-### Demo 2: Fix Agent (Soundbox Telemetry & Field Service Dispatch)
-*Goal: Prove that live device re-checks gate recovery, and unreachable hardware triggers automated technician booking.*
-
-1. **Remote Recovery Re-Check Gate**:
+4. **Payment Confirmed & Goods Release (Branch C)**:
    - In **Merchant Mobile** Chat, type:
-     > *"Soundbox SB-JAI-101 is not speaking chime, red light is on"*
+     > *"Customer Pooja says ₹320 was debited but Soundbox did not speak, did it go through?"*
    - **Observe**:
-     - Remote reboot packet dispatched over-the-air.
-     - Live telemetry re-check runs: device remains `OFFLINE`.
-     - Agent immediately switches from auto-recovery to **Technician Visit Booked**:
-       - Slot: Tomorrow 10:00 AM – 12:00 PM.
-       - Case ID: `case_tech_...` with chip `NEEDS_HUMAN` (#DC2626).
-   - In **Employee Web**, navigate to **Fix & Devices** tab:
-     - View Soundbox `SB-JAI-101` telemetry: Battery 88%, Signal -65 dBm, Status `OFFLINE`.
-     - Notice technician visit task logged under `needs_human`.
+     - Saathi verifies UTR `PAYTM_SUCCESS_991823`, confirms the payment was **SUCCESSFUL** and credited to the Paytm settlement balance.
+     - Merchant follow-up:
+       > *"Can I release goods to Pooja?"*
+     - Saathi answers: *"Yes, absolutely! You can safely release the goods to Pooja Chawla."*
 
 ---
 
-### Demo 3: Reconcile Agent (Settlement Audit & Discrepancy Dispute)
-*Goal: Prove that arithmetic is computed in minor units (paise) by code, never by LLM hallucination.*
+### Demo 2: Fix Agent (Soundbox Telemetry, Guided Self-Checks & Technician Dispatch)
+*Goal: Prove that Saathi acts as a real problem-solver by guiding merchants through self-checks first to prevent unnecessary technician visits, and coordinates authoritative field dispatch when hardware truly fails.*
 
-1. **Daily Settlement Breakdown**:
+1. **Step-by-Step Guided Self-Checks in Chat (End-to-End Simulation)**:
    - In **Merchant Mobile** Chat, type:
-     > *"Why was yesterday's payout short?"*
-   - Or in **Employee Web**, open **Reconcile & Settlement** tab:
-     - Date: `2026-10-27` (Store: `mer_gupta_electronics` or `mer_verma_sweets`).
-     - **Mathematical Breakdown**:
-       - Gross Sales: ₹25,000.00 (2,500,000 paise)
-       - Refunds: -₹1,500.00
-       - MDR Fees: -₹750.00
-       - Chargebacks: -₹1,250.00
-       - Net Expected: ₹21,500.00 vs Net Settled: ₹19,500.00
-       - **Discrepancy**: **-₹2,000.00 (SHORTFALL)**
-     - Chip displays `AWAITING_APPROVAL`.
-     - Click **"⚡ File Dispute & Escalate"**: creates a high-priority nodal bank investigation task.
+     > *"Mera soundbox kaam nahi kar raha, koi awaz nahi aayi"* (or *"Soundbox speaker is silent"*).
+   - **Observe**:
+     - Saathi checks live telemetry from database (Battery: 88%, Signal: GOOD, 4G Pro).
+     - Saathi greets the shopkeeper warmly and starts **Step 1: Volume Replay Test**:
+       - Explains: *"Technician bulane se pehle aksar volume mute hone se issue hota hai. Kripya '+' button ko 2 second tak dabakar rakhein."*
+       - Renders **Step 1 Action Card** with interactive buttons:
+         - `[🔊 Haan, Awaaz Aa Gayi]`
+         - `[❌ Nahi, Awaaz Nahi Aayi]`
+
+2. **Advancing to Step 2 (Power Cycle & Cable Inspection)**:
+   - Click **`[❌ Nahi, Awaaz Nahi Aayi]`** (or type *"Maine '+' button dabaya par awaz nahi aayi"*).
+   - **Observe**:
+     - System dispatches an OTA Remote Network Reset packet (real Command ID).
+     - Instructs **Step 2: Power Cycle**:
+       - *"Soundbox ko peeche se 10 second OFF karke ON karein aur orange charger check karein. LED light ka color dekhein."*
+       - Renders **Step 2 Action Card** with interactive buttons:
+         - `[🟢 Green Light Ho Gayi (Chal Gaya)]`
+         - `[🔴 Abhi Bhi Red Hai / Chup Hai]`
+
+3. **Field Technician Dispatch (When Self-Checks Exhausted)**:
+   - Click **`[🔴 Abhi Bhi Red Hai / Chup Hai]`** (or type *"Switch off on kiya par abhi bhi red light hai"*).
+   - **Observe**:
+     - System re-checks live telemetry; device remains unreachable.
+     - Saathi immediately books an authorized Field Service Technician:
+       - Slot: `Tomorrow 10:00 AM – 12:00 PM`.
+       - Case ID: `#case_tech_...` with chip `NEEDS_HUMAN` (#DC2626).
+       - Zero-cost SLA replacement guarantee.
+     - In **Employee Web**, open **Fix (Devices/Soundbox)** or **Control Tower**:
+       - Notice the new task logged in real time with technician slot and audit log trail!
+
+4. **Live Case Tracking & Reassurance**:
+   - In chat, ask: *"Mera technician kab aayega?"*
+   - Saathi retrieves the scheduled visit, reminds merchant of the exact slot and Case ID, and stays available.
+
+5. **Instant Resolution Confirmation (If Succeeded at Any Step)**:
+   - If merchant clicks `[🔊 Haan, Awaaz Aa Gayi]` or `[🟢 Green Light Ho Gayi]`:
+   - Saathi verifies live telemetry, marks device as verified ONLINE in DB, and offers collection/khata tools.
+
+---
+
+### Demo 3: Reconcile Agent (Settlement Audit, Fee Explanation & Discrepancy Dispute)
+*Goal: Prove that arithmetic is computed in minor units (paise) by code (never LLM hallucination), fee deductions are fully explained, and merchants receive instant advisory clarity.*
+
+1. **Daily Settlement Breakdown (Yesterday / Normal Day)**:
+   - In **Merchant Mobile** Chat, type:
+     > *"Show settlement breakdown for yesterday"* (or *"Kal ka settlement kitna aaya?"*)
+   - **Observe**:
+     - Chip displays `VERIFIED` (#0B8457).
+     - Renders interactive `SETTLEMENT_BREAKDOWN` card: Gross Sales (₹10,000.00), Refunds (-₹500.00), Fees (-₹300.00), Net Settled (₹9,200.00, Bank UTR: `ICICINODAL99281028`).
+     - Agent confirms: *"Settlement for 2026-10-28 reconciles completely to your bank account."*
+     - Card features verified service charges and 1-tap quick action buttons.
+
+2. **Fee Explanation & Service Charges**:
+   - In **Merchant Mobile** Chat, type:
+     > *"Meri fees kyu kati?"* (or *"Why was ₹300 fee deducted?"*)
+   - **Observe**:
+     - Saathi breaks down the exact ₹300 deduction:
+       - **₹250.00**: Soundbox 4G Pro Monthly Subscription (device maintenance, speaker warranty, unlimited 4G SIM).
+       - **₹50.00**: Commercial MDR (0.5% gateway fee).
+     - Reassures merchant that standard customer UPI payments have **0% MDR**.
+
+3. **Automated Payout Timing & Schedule Advisory**:
+   - In **Merchant Mobile** Chat, type:
+     > *"When will today's settlement hit my bank account?"* (or *"Settlement kab aayega?"*)
+   - **Observe**:
+     - Saathi explains the daily schedule: **7:00 AM every morning (T+1 schedule)** directly via ICICI Nodal payout.
+     - Explains that today's collections settle tomorrow at 7:00 AM, and points to the 0-fee **Instant Settlement** feature for immediate daytime funds.
+
+4. **Multi-Day Discrepancy Health Scan & Dispute Case (Anomalous Day)**:
+   - In **Merchant Mobile** Chat, type:
+     > *"Check all my settlements for discrepancy"* (or *"Kahi koi shortfall hai kya?"*)
+   - **Observe**:
+     - Saathi audits all recent settlements:
+       - **28 Oct**: ₹9,200.00 (Reconciled completely).
+       - **27 Oct**: Unexplained shortfall of **₹1,200.00** detected (Calculated Net: ₹13,000.00 vs Bank Deposit: ₹11,800.00).
+     - Priority dispute review case (Case ID: `#case_disp_...`) is actively queued with Nodal Settlement Operations.
+     - Renders `SETTLEMENT_BREAKDOWN` with chip `NEEDS_HUMAN` and 1-tap action button: **"📷 Attach Passbook / Statement Proof"**.
+     - Click **"📷 Attach Passbook / Statement Proof"** &mdash; updates to confirmed proof attached.
+   - In **Employee Web**, open **Cases & Tasks**:
+     - Verify the settlement dispute case is visible in `needs_human` bucket with full audit trail!
 
 ---
 
@@ -156,24 +233,49 @@ pnpm start
 
 ---
 
-### Demo 7: Vasooli Agent (Consensual Udhaar Reminders)
-*Goal: Prove that Vasooli respects customer consent, strictly halts on disputes/revocations, and auto-stops upon payment.*
+### Demo 7: Vasooli Agent (Consensual Store Credit / Udhaar Management)
+*Goal: Prove that Vasooli provides end-to-end conversational store credit management directly from chat with complete context, top debtor prioritization, anti-coercion policies, and 1-tap interactive action cards.*
 
-1. **Permission Check & Polite Reminders**:
-   - In **Merchant Mobile**, scroll to **Customer Udhaar (Dues)**:
-     - Tap **Vikram Singh** (₹850.00, Consent: `ALLOWED`):
-       - Polite bilingual WhatsApp message previewed (Zero threats, zero legal shaming).
-       - Tap **"Approve & Send Reminder"**.
-       - Reminder counter increments (1/3).
-2. **Revocation & Dispute Boundaries**:
-   - Tap **Sunita Devi** (₹1,400.00, Consent: `REVOKED`):
-     - Card displays: *"Outreach Refused: Customer has revoked contact permission."* Button is disabled.
-   - Tap **Manish Gupta** (₹420.00, Dispute: `ACTIVE`):
-     - Card displays: *"Outreach Refused: Active dispute reported on goods received."*
-3. **Authoritative Auto-Stop**:
+1. **Complete Ledger & Top Debtor Discovery**:
+   - In **Merchant Mobile** Chat, type:
+     > *"give me all details about my udhar"* or *"who owes the most udhar?"*
+   - **Observe**:
+     - Vasooli Agent responds with natural bilingual intelligence:
+       - Total Outstanding: **₹4,000.00** across 4 active accounts; **₹650.00** recovered today.
+       - Identifies **#1 Top Debtor: Amit Shukla** (₹1,500.00) and advises a 3-month split plan (₹500/mo).
+       - Details all customer statuses (Vikram Singh consensual, Manish Gupta dispute hold, Sunita Devi in-store only).
+     - Renders an interactive **`VASOOLI_LEDGER_CARD`** with metrics, status chips, and 1-tap quick action buttons.
+
+2. **Customer Balance Inquiry with Instant Action**:
+   - Type in chat:
+     > *"Vikram ka udhare kitna hai ??"*
+   - **Observe**:
+     - Agent matches Vikram Singh, explains the exact balance of **₹850.00** for *"Aata bag and spices bought on credit"*, and confirms consensual contact status (`ALLOWED`).
+     - Directly embeds the **`VASOOLI_REMINDER_CARD`** in chat with a polite Hindi SMS/WhatsApp preview and a secure Paytm UPI link.
+
+3. **1-Tap Approval & Reminder Delivery**:
+   - In chat or via quick option, type:
+     > *"Vikram ko polite reminder bhejo udhari chukane k lie"*
+   - **Observe**:
+     - Card displays status: `Approval Required` with button **[📤 Approve & Send Reminder]**.
+     - Tap **"Approve & Send Reminder"**:
+       - Card transitions to `✓ Respectful reminder sent via SMS/WhatsApp. Auto-stop active on UPI arrival.`
+       - Reminder counter increments to 1/3, and an immutable audit event is logged.
+
+4. **Regulatory Boundaries (Revocation & Dispute Guards)**:
+   - Type in chat:
+     > *"Sunita Devi ko reminder bhejo"*
+   - **Observe**:
+     - Policy Refusal: *"Outreach Refused by Policy: Customer Sunita Devi has revoked contact permission (Status: REVOKED). In-store collection recommended."*
+   - Type in chat:
+     > *"Manish Gupta ko reminder bhejo"*
+   - **Observe**:
+     - Policy Pause: *"Outreach Refused by Policy: Receivable is currently disputed by the customer (Basmati rice 2 bags on credit). Vasooli suspends all reminders until discrepancy is resolved."*
+
+5. **Authoritative Auto-Stop on UPI Settlement**:
    - In **Employee Web** under **Vasooli Receivables**, click **"⚡ Simulate Payment Received"** on Vikram Singh:
      - Payment recorded as `VERIFIED_PAID`.
-     - In **Merchant Mobile**, reminder card instantly disappears with status updated to `Auto-Stopped`.
+     - Reminders auto-stopped and any pending approval cards are automatically cancelled.
 
 ---
 

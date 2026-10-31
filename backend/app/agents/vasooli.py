@@ -17,7 +17,7 @@ class VasooliAgentState(TypedDict):
     query_text: str
     actor_id: str
     execution_id: str
-    action_type: str  # RECORD_UDHAAR | DRAFT_REMINDER | APPROVE_AND_SEND | NEGOTIATE_SPLIT | RECORD_PAYMENT
+    action_type: str  # RECORD_UDHAAR | DRAFT_REMINDER | APPROVE_AND_SEND | NEGOTIATE_SPLIT | RECORD_PAYMENT | PARSE_QUERY | CUSTOMER_INQUIRY
     receivable_id: Optional[str]
     customer_id: Optional[str]
     customer_name: Optional[str]
@@ -31,9 +31,11 @@ class VasooliAgentState(TypedDict):
     payment_reference: Optional[str]
     # Agent Output
     agent_reply: str
+    explanation_hi: Optional[str]
     chip_status: str  # verified | executed | pending | awaiting_approval | needs_human
     approval_card: Optional[Dict[str, Any]]
     action_card: Optional[Dict[str, Any]]
+    vasooli_card: Optional[Dict[str, Any]]
     refusal_reason: Optional[str]
     error: Optional[str]
 
@@ -100,17 +102,59 @@ class VasooliAgent:
 
         return builder.compile()
 
+    @staticmethod
+    def _extract_amount(text: str) -> Optional[int]:
+        """Extracts monetary amount from natural utterance in paise, guarding against quantities like '5kg'."""
+        t = text.lower()
+        # 1. Preceded by currency symbol or word: rs 300, ₹500, inr 200, rupees 100
+        m = re.search(r"(?:₹|rs\.?|inr|rupees)\s*(\d+)", t)
+        if m:
+            val = int(m.group(1))
+            return val * 100 if val < 100000 else val
+        # 2. Followed by currency word: 300 rs, 300 rupees, 500 inr, 300 paise
+        m = re.search(r"(\d+)\s*(?:rs\.?|rupees|inr|paise)", t)
+        if m:
+            val = int(m.group(1))
+            return val * 100 if val < 100000 else val
+        # 3. Preceded by udhaar/of/worth/for: udhaar of 250, credit 500, worth 400
+        m = re.search(r"(?:udhaar|udhar|credit|worth|for)\s+(?:of\s+)?(?:rs\.?|₹)?\s*(\d+)", t)
+        if m:
+            val = int(m.group(1))
+            return val * 100 if val < 100000 else val
+        return None
+
+    @staticmethod
+    def _match_customer(customers: List[Customer], query: str) -> Optional[Customer]:
+        """Matches customer by exact name or first/last name tokens."""
+        q = query.lower()
+        # 1. Exact full name match
+        for c in customers:
+            if c.name and c.name.lower() in q:
+                return c
+
+        # 2. Token match for first/last name with word boundaries & Hindi suffixes
+        for c in customers:
+            if not c.name:
+                continue
+            tokens = [t.lower() for t in re.split(r"[\s_]+", c.name.strip()) if len(t) >= 3]
+            for token in tokens:
+                pattern = rf"\b{re.escape(token)}(?:ji|bhai|saheb|ko|ka|ki|ke)?\b"
+                if re.search(pattern, q):
+                    return c
+        return None
+
     def _node_entry_analyzer(self, state: VasooliAgentState) -> Dict[str, Any]:
-        """Parses plain language merchant udhaar recording or reminder requests."""
+        """Parses plain language merchant udhaar recording, inquiry, or reminder requests."""
         query = state.get("query_text", "").strip()
         merchant_id = state.get("merchant_id", "mer_sharma_kirana")
         q_lower = query.lower()
 
-        # Check for prohibited coercive language in merchant input
+        # 1. Check for prohibited coercive language in merchant input
         banned = self.tools.vasooli_adapter.check_banned_phrases(query) if self.tools.vasooli_adapter else None
         if banned:
             return {
                 "chip_status": "needs_human",
+                "action_type": "NEEDS_HUMAN",
                 "agent_reply": (
                     f"Action Blocked by Policy: Prohibited coercive term '{banned}' detected. "
                     "Vasooli is a respectful store credit helper and strictly prohibits legal threats, police action, or public shaming."
@@ -118,27 +162,102 @@ class VasooliAgent:
                 "error": "R4_COERCIVE_LANGUAGE_BLOCKED",
             }
 
-        # Check for free-text udhaar recording: "Vikram Singh bought 5kg aata for 250 rs on udhaar"
-        # Or: "Record udhaar of 500 for Suresh"
-        amount_match = re.search(r"(?:₹|rs\.?|inr)?\s*(\d+)(?:\s*(?:rs|rupees|paise))?", q_lower)
-        is_record_intent = any(w in q_lower for w in ["udhaar", "credit", "khata", "bought", "purchase", "record", "add"])
-
         # Detect customer name from existing customers
         customers = self.db.query(Customer).filter(Customer.merchant_id == merchant_id).all()
-        matched_cust = None
-        for c in customers:
-            if c.name.lower() in q_lower:
-                matched_cust = c
-                break
+        matched_cust = self._match_customer(customers, query)
 
-        if is_record_intent and amount_match:
-            amount_val = int(amount_match.group(1))
-            # If specified in rupees, convert to paise
-            amount_paise = amount_val * 100 if amount_val < 100000 else amount_val
+        # 2. Check for Split Installment Negotiation Intent
+        is_split_intent = any(w in q_lower for w in ["split", "installment", "kist", "kiston", "banto", "baanto", "hisson"])
+        if is_split_intent and matched_cust:
+            rec = (
+                self.db.query(Receivable)
+                .filter(
+                    Receivable.customer_id == matched_cust.id,
+                    Receivable.merchant_id == merchant_id,
+                    Receivable.status.in_(["PENDING", "PARTIALLY_PAID"]),
+                )
+                .order_by(Receivable.created_at.desc())
+                .first()
+            )
+            if rec:
+                num_splits = 3 if rec.amount >= 100000 else 2
+                per_split = rec.amount // num_splits
+                remainder = rec.amount - (per_split * num_splits)
+                splits = [per_split] * num_splits
+                splits[0] += remainder
+                prop = self.tools.vasooli_adapter.negotiate_installment_split(
+                    receivable_id=rec.id,
+                    split_amounts_paise=splits,
+                    actor_id=state.get("actor_id", "merchant_user"),
+                )
+                split_card = {
+                    "type": "VASOOLI_SPLIT_CARD",
+                    "approval_id": prop.approval_id,
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                    "total_amount_formatted": f"₹{prop.total_amount_paise / 100:,.2f}",
+                    "splits": prop.splits,
+                    "proposal_summary": prop.proposal_summary,
+                    "status": "AWAITING_APPROVAL",
+                }
+                reply = (
+                    f"I have prepared a {len(splits)}-part installment proposal for {matched_cust.name} "
+                    f"totaling ₹{prop.total_amount_paise / 100:,.2f} ({prop.proposal_summary}). "
+                    f"Please review the approval card below to confirm."
+                )
+                return {
+                    "chip_status": "awaiting_approval",
+                    "action_type": "NEGOTIATE_SPLIT",
+                    "agent_reply": reply,
+                    "approval_card": split_card,
+                    "action_card": split_card,
+                    "vasooli_card": split_card,
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                }
+
+        # 3. Check for Payment / Settlement Intent
+        is_payment_intent = any(w in q_lower for w in ["paid", "chukaya", "de diya", "de diye", "settle", "settled", "bhugtan ho gaya", "mil gaya"])
+        if is_payment_intent and matched_cust:
+            rec = (
+                self.db.query(Receivable)
+                .filter(
+                    Receivable.customer_id == matched_cust.id,
+                    Receivable.merchant_id == merchant_id,
+                )
+                .order_by(Receivable.created_at.desc())
+                .first()
+            )
+            if rec and rec.status != "PAID":
+                pay_res = self.tools.record_payment_status(
+                    receivable_id=rec.id,
+                    paid_amount_paise=rec.amount,
+                    is_authoritative=True,
+                    actor_id=state.get("actor_id", "merchant_user"),
+                )
+                return {
+                    "chip_status": "verified",
+                    "action_type": "RECORD_PAYMENT",
+                    "agent_reply": f"Payment of ₹{rec.amount / 100:,.2f} from {matched_cust.name} verified and recorded. Dues cleared, reminders auto-stopped.",
+                    "action_card": pay_res,
+                    "approval_card": None,
+                    "vasooli_card": None,
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                }
+
+        # 4. Check for Free-text Udhaar Recording with amount: "Vikram Singh bought 5kg aata for 250 rs on udhaar"
+        extracted_amount_paise = self._extract_amount(query)
+        is_record_intent = any(w in q_lower for w in ["bought", "purchase", "record", "add"]) or (
+            any(w in q_lower for w in ["udhaar", "credit", "khata"])
+            and any(w in q_lower for w in ["liya", "diya", "of", "worth", "bought", "add", "daal", "likho", "likh"])
+        )
+
+        if is_record_intent and extracted_amount_paise:
+            amount_paise = extracted_amount_paise
 
             target_cust = matched_cust
             if not target_cust:
-                # Fallback or create customer
                 name_match = re.search(r"(?:for|to|customer)\s+([A-Za-z\s]+?)(?:\s+bought|\s+for|\s+on|\s*$)", query, re.IGNORECASE)
                 cust_name = name_match.group(1).strip() if name_match else "Customer"
                 target_cust = Customer(
@@ -155,7 +274,6 @@ class VasooliAgent:
                 self.db.add(target_cust)
                 self.db.flush()
 
-            # Create Receivable
             now = datetime.now(timezone.utc)
             rec = Receivable(
                 tenant_id="tenant_paytm_demo",
@@ -175,10 +293,9 @@ class VasooliAgent:
             self.db.add(rec)
             self.db.commit()
 
-            # Draft polite reminder and approval card
             draft = self.tools.vasooli_adapter.draft_payment_reminder(rec.id)
-
             approval_card = {
+                "type": "VASOOLI_REMINDER_CARD",
                 "approval_id": f"appr_rec_{rec.id}",
                 "receivable_id": rec.id,
                 "customer_name": target_cust.name,
@@ -190,84 +307,319 @@ class VasooliAgent:
                 "can_send": draft.can_send,
                 "refusal_reason": draft.refusal_reason,
             }
-
             reply = (
                 f"Recorded store credit (Udhaar) of {draft.amount_formatted} for {target_cust.name}. "
                 f"I have drafted a respectful payment reminder with a secure UPI link below. "
                 f"Please review and approve before sending."
             )
-
             return {
                 "chip_status": "awaiting_approval",
+                "action_type": "RECORD_UDHAAR",
                 "agent_reply": reply,
                 "approval_card": approval_card,
                 "action_card": approval_card,
+                "vasooli_card": approval_card,
                 "receivable_id": rec.id,
                 "customer_name": target_cust.name,
             }
 
-        # Check if merchant asks to remind a specific customer: "Remind Sunita Devi" / "Send reminder to Vikram Singh"
-        if "remind" in q_lower or "send reminder" in q_lower or "message" in q_lower:
-            if matched_cust:
-                # Find pending receivable for this customer
-                rec = (
-                    self.db.query(Receivable)
-                    .filter(
-                        Receivable.customer_id == matched_cust.id,
-                        Receivable.merchant_id == merchant_id,
-                    )
-                    .order_by(Receivable.created_at.desc())
-                    .first()
+        # 5. Check if Merchant asks to Remind a Specific Customer: e.g. "Vikram ko polite reminder bhejo udhari chukane k lie"
+        is_reminder_intent = any(w in q_lower for w in ["remind", "reminder", "bhejo", "bhejna", "message", "suchna", "chukane", "yaad dilao"])
+        if is_reminder_intent and matched_cust:
+            rec = (
+                self.db.query(Receivable)
+                .filter(
+                    Receivable.customer_id == matched_cust.id,
+                    Receivable.merchant_id == merchant_id,
                 )
-                if rec:
-                    draft = self.tools.vasooli_adapter.draft_payment_reminder(rec.id)
-                    if not draft.can_send:
-                        # Visible refusal
-                        return {
-                            "chip_status": "needs_human",
-                            "agent_reply": f"Outreach Refused: {draft.refusal_reason}",
-                            "refusal_reason": draft.refusal_reason,
-                            "receivable_id": rec.id,
-                        }
-
-                    approval_card = {
-                        "approval_id": f"appr_rec_{rec.id}",
+                .order_by(Receivable.created_at.desc())
+                .first()
+            )
+            if rec:
+                draft = self.tools.vasooli_adapter.draft_payment_reminder(rec.id)
+                if not draft.can_send:
+                    refusal_card = {
+                        "type": "VASOOLI_REFUSAL_CARD",
                         "receivable_id": rec.id,
                         "customer_name": matched_cust.name,
-                        "customer_phone": matched_cust.phone,
                         "amount_formatted": draft.amount_formatted,
-                        "draft_message_hi": draft.draft_message_hi,
-                        "payment_link_url": draft.payment_link_url,
-                        "status": "AWAITING_APPROVAL",
-                        "can_send": True,
-                        "reminder_count": rec.reminder_count,
+                        "can_send": False,
+                        "status": "REFUSED",
+                        "refusal_reason": draft.refusal_reason,
                     }
                     return {
-                        "chip_status": "awaiting_approval",
-                        "agent_reply": (
-                            f"Drafted polite reminder for {matched_cust.name} ({draft.amount_formatted}). "
-                            "Please review the approval card below to send."
-                        ),
-                        "approval_card": approval_card,
-                        "action_card": approval_card,
+                        "chip_status": "needs_human",
+                        "action_type": "DRAFT_REMINDER",
+                        "agent_reply": f"Outreach Refused by Policy: {draft.refusal_reason}",
+                        "refusal_reason": draft.refusal_reason,
+                        "approval_card": refusal_card,
+                        "action_card": refusal_card,
+                        "vasooli_card": refusal_card,
                         "receivable_id": rec.id,
+                        "customer_name": matched_cust.name,
                     }
 
-        # Default summary query or explanation
+                approval_card = {
+                    "type": "VASOOLI_REMINDER_CARD",
+                    "approval_id": f"appr_rec_{rec.id}",
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                    "customer_phone": matched_cust.phone,
+                    "amount_formatted": draft.amount_formatted,
+                    "draft_message_hi": draft.draft_message_hi,
+                    "payment_link_url": draft.payment_link_url,
+                    "status": "AWAITING_APPROVAL",
+                    "can_send": True,
+                    "reminder_count": rec.reminder_count,
+                }
+                reply = (
+                    f"I have drafted a respectful payment reminder for {matched_cust.name} ({draft.amount_formatted}) "
+                    f"with a secure Paytm UPI payment link. Please review the message below and tap 'Approve & Send Reminder' to send it."
+                )
+                return {
+                    "chip_status": "awaiting_approval",
+                    "action_type": "DRAFT_REMINDER",
+                    "agent_reply": reply,
+                    "approval_card": approval_card,
+                    "action_card": approval_card,
+                    "vasooli_card": approval_card,
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                }
+
+        # 6. Specific Customer Balance / Khata Inquiry: e.g. "Vikram ka udhare kitna hai ??" or "Manish ka udhar batao"
+        if matched_cust:
+            recs = (
+                self.db.query(Receivable)
+                .filter(
+                    Receivable.customer_id == matched_cust.id,
+                    Receivable.merchant_id == merchant_id,
+                )
+                .order_by(Receivable.created_at.desc())
+                .all()
+            )
+            if not recs:
+                return {
+                    "chip_status": "verified",
+                    "action_type": "CUSTOMER_INQUIRY",
+                    "agent_reply": f"No active store credit record found for {matched_cust.name}.",
+                    "approval_card": None,
+                    "action_card": None,
+                    "vasooli_card": None,
+                    "customer_name": matched_cust.name,
+                }
+
+            active_recs = [r for r in recs if r.status in ["PENDING", "PARTIALLY_PAID", "DISPUTED"]]
+            if not active_recs:
+                latest_paid = recs[0]
+                amount_fmt = f"₹{latest_paid.amount / 100:,.2f}"
+                reply = (
+                    f"Namaste! {matched_cust.name} has completely cleared all dues. "
+                    f"The previous balance of {amount_fmt} for '{latest_paid.notes or 'store credit'}' was settled in full via UPI today."
+                )
+                return {
+                    "chip_status": "verified",
+                    "action_type": "CUSTOMER_INQUIRY",
+                    "agent_reply": reply,
+                    "approval_card": None,
+                    "action_card": None,
+                    "vasooli_card": None,
+                    "customer_name": matched_cust.name,
+                    "receivable_id": latest_paid.id,
+                }
+
+            # Choose primary receivable (prefer non-disputed with consensual permissions, or largest)
+            rec = next((r for r in active_recs if not r.is_disputed and matched_cust.contact_permission), active_recs[0])
+            total_pending_paise = sum(r.amount - r.paid_amount for r in active_recs)
+            amount_fmt = f"₹{total_pending_paise / 100:,.2f}"
+            all_notes = "; ".join(r.notes for r in active_recs if r.notes) or "store credit"
+
+            if rec.is_disputed:
+                refusal_card = {
+                    "type": "VASOOLI_REFUSAL_CARD",
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                    "amount_formatted": amount_fmt,
+                    "can_send": False,
+                    "status": "DISPUTED",
+                    "refusal_reason": f"Dispute hold: {rec.dispute_reason or 'Item discrepancy reported'}. Digital reminders suspended.",
+                }
+                reply = (
+                    f"Namaste! {matched_cust.name} has a pending balance of {amount_fmt} for '{all_notes}'. "
+                    f"However, this account is currently flagged as DISPUTED ({rec.dispute_reason or 'delivery discrepancy reported'}). "
+                    f"Under Paytm Saathi's respectful policy, automated reminders are paused to preserve trust. "
+                    f"We recommend checking the delivered items in person with the customer to resolve the discrepancy."
+                )
+                return {
+                    "chip_status": "needs_human",
+                    "action_type": "CUSTOMER_INQUIRY",
+                    "agent_reply": reply,
+                    "approval_card": refusal_card,
+                    "action_card": refusal_card,
+                    "vasooli_card": refusal_card,
+                    "refusal_reason": rec.dispute_reason,
+                    "customer_name": matched_cust.name,
+                    "receivable_id": rec.id,
+                }
+
+            if not matched_cust.contact_permission or matched_cust.permission_status != "ALLOWED":
+                refusal_card = {
+                    "type": "VASOOLI_REFUSAL_CARD",
+                    "receivable_id": rec.id,
+                    "customer_name": matched_cust.name,
+                    "amount_formatted": amount_fmt,
+                    "can_send": False,
+                    "status": "REVOKED",
+                    "refusal_reason": "Customer opted out of digital notifications. In-store settlement only.",
+                }
+                reply = (
+                    f"Namaste! {matched_cust.name} has a pending balance of {amount_fmt} for '{all_notes}'. "
+                    f"Note: {matched_cust.name} has opted out of digital reminders (Revoked Consent). "
+                    f"Under our zero-harassment policy, automated SMS/WhatsApp reminders cannot be sent. "
+                    f"Please collect payment in person when they next visit your store."
+                )
+                return {
+                    "chip_status": "needs_human",
+                    "action_type": "CUSTOMER_INQUIRY",
+                    "agent_reply": reply,
+                    "approval_card": refusal_card,
+                    "action_card": refusal_card,
+                    "vasooli_card": refusal_card,
+                    "refusal_reason": "Communication permission revoked",
+                    "customer_name": matched_cust.name,
+                    "receivable_id": rec.id,
+                }
+
+            # Active, consensual customer (e.g. Vikram Singh or Amit Shukla)
+            draft = self.tools.vasooli_adapter.draft_payment_reminder(rec.id)
+            approval_card = {
+                "type": "VASOOLI_REMINDER_CARD",
+                "approval_id": f"appr_rec_{rec.id}",
+                "receivable_id": rec.id,
+                "customer_name": matched_cust.name,
+                "customer_phone": matched_cust.phone,
+                "amount_formatted": amount_fmt,
+                "draft_message_hi": draft.draft_message_hi,
+                "payment_link_url": draft.payment_link_url,
+                "status": "AWAITING_APPROVAL",
+                "can_send": True,
+                "reminder_count": rec.reminder_count,
+            }
+            reply = (
+                f"Namaste! {matched_cust.name} owes {amount_fmt} for '{all_notes}'. "
+                f"Contact permission is active (ALLOWED) and the account is in good standing. "
+                f"I have prepared a respectful reminder with a secure Paytm UPI payment link below. "
+                f"Tap 'Approve & Send Reminder' to send it, or tell me to split the payment or record payment."
+            )
+            return {
+                "chip_status": "awaiting_approval",
+                "action_type": "CUSTOMER_INQUIRY",
+                "agent_reply": reply,
+                "approval_card": approval_card,
+                "action_card": approval_card,
+                "vasooli_card": approval_card,
+                "customer_name": matched_cust.name,
+                "receivable_id": rec.id,
+            }
+
+        # 7. Store-wide All Udhaar / Top Debtors / General Khata Inquiry: e.g. "give me all details about my udhar", "who owes the most udhar?"
         summary = self.tools.vasooli_adapter.get_vasooli_summary(merchant_id)
-        reply = (
-            f"Namaste! Vasooli Udhaar Summary for your store:\n"
-            f"• Total Outstanding: {summary.total_outstanding_formatted} across {summary.total_receivables_count} customers\n"
-            f"• Recovered Today: {summary.total_recovered_formatted}\n"
-            f"• Disputed / Paused: {summary.disputed_count}\n"
-            f"• Opted Out / Revoked: {summary.revoked_permission_count}\n"
-            f"Tell me in plain words (e.g., 'Vikram bought 200 rs items on credit') to record udhaar."
+        all_recs = (
+            self.db.query(Receivable)
+            .filter(Receivable.merchant_id == merchant_id)
+            .order_by(Receivable.amount.desc())
+            .all()
         )
+        active_recs = [r for r in all_recs if r.status in ["PENDING", "PARTIALLY_PAID", "DISPUTED"]]
+        active_recs.sort(key=lambda r: (r.amount - r.paid_amount), reverse=True)
+
+        customers_list = []
+        top_debtor = None
+        for idx, r in enumerate(active_recs):
+            c = r.customer
+            rem_amount_fmt = f"₹{(r.amount - r.paid_amount) / 100:,.2f}"
+
+            if r.is_disputed:
+                status_tag = "DISPUTED"
+                rec_action = f"Dispute hold ({r.dispute_reason or 'discrepancy'}). Reminders paused; resolve in store."
+                q_label = "⚖️ Check Dispute"
+                q_query = f"{c.name} ka udhar dispute kya hai?"
+            elif not c.contact_permission or c.permission_status != "ALLOWED":
+                status_tag = "REVOKED"
+                rec_action = "Customer opted out of digital reminders. In-store collection only."
+                q_label = "🏪 In-Store Cash"
+                q_query = f"{c.name} ka hisab dikhao"
+            elif (r.amount - r.paid_amount) >= 100000:
+                status_tag = "SPLIT_CANDIDATE"
+                rec_action = "High balance. Suggest 3-month split plan (₹500/mo) or gentle reminder."
+                q_label = f"➗ Split {c.name.split()[0]}"
+                q_query = f"{c.name} ka split plan banao"
+            else:
+                status_tag = "ALLOWED"
+                rec_action = "Consensual reminder ready with UPI payment link."
+                q_label = f"📲 Remind {c.name.split()[0]}"
+                q_query = f"{c.name} ko polite reminder bhejo udhari chukane k lie"
+
+            entry = {
+                "name": c.name,
+                "receivable_id": r.id,
+                "amount_formatted": rem_amount_fmt,
+                "amount_paise": r.amount - r.paid_amount,
+                "status": status_tag,
+                "consent_status": c.permission_status,
+                "is_disputed": r.is_disputed,
+                "notes": r.notes or "Store credit purchase",
+                "recommended_action": rec_action,
+                "quick_action_label": q_label,
+                "quick_action_query": q_query,
+            }
+            customers_list.append(entry)
+            if idx == 0:
+                top_debtor = {
+                    "name": c.name,
+                    "amount_formatted": rem_amount_fmt,
+                    "recommendation": f"Highest balance ({rem_amount_fmt}). {rec_action}",
+                }
+
+        ledger_card = {
+            "type": "VASOOLI_LEDGER_CARD",
+            "title": "Store Credit Ledger (Vasooli Khata)",
+            "status": "verified",
+            "total_outstanding_formatted": summary.total_outstanding_formatted,
+            "total_recovered_formatted": summary.total_recovered_formatted,
+            "total_receivables_count": len(active_recs),
+            "top_debtor": top_debtor,
+            "customers": customers_list,
+            "quick_options": [
+                {"label": "📲 Remind Vikram (₹850)", "textToSend": "Vikram ko polite reminder bhejo udhari chukane k lie"},
+                {"label": "➗ Split Amit Plan (₹1,500)", "textToSend": "Amit Shukla ka split plan banao"},
+                {"label": "⚖️ Check Manish Dispute", "textToSend": "Manish Gupta ka udhar dispute kya hai?"},
+                {"label": "➕ Record New Udhaar", "textToSend": "Record udhaar of 250 for Suresh"},
+            ],
+        }
+
+        top_text = f"Top Debtor: **{top_debtor['name']}** owes the most ({top_debtor['amount_formatted']})." if top_debtor else ""
+        breakdown_lines = []
+        for c_item in customers_list:
+            breakdown_lines.append(f"• **{c_item['name']}**: {c_item['amount_formatted']} ({c_item['notes']}) — *{c_item['recommended_action']}*")
+
+        reply = (
+            f"Namaste! Here is the complete breakdown of your store credit (Udhaar):\n\n"
+            f"📊 **Overview**: Total Outstanding: **{summary.total_outstanding_formatted}** across {len(active_recs)} customers. "
+            f"Recovered Today: **{summary.total_recovered_formatted}**.\n\n"
+            f"👑 {top_text}\n\n"
+            f"**Customer Balances & Recommended Next Steps**:\n"
+            + "\n".join(breakdown_lines) +
+            f"\n\n💡 *Tip: You can tap any quick action below to send a gentle reminder, propose an installment split, or check dispute details.*"
+        )
+
         return {
             "chip_status": "verified",
+            "action_type": "PARSE_QUERY",
             "agent_reply": reply,
+            "action_card": ledger_card,
             "approval_card": None,
-            "action_card": None,
+            "vasooli_card": None,
         }
 
     def _node_udhaar_recorder(self, state: VasooliAgentState) -> Dict[str, Any]:
@@ -506,25 +858,47 @@ class VasooliAgent:
             "is_authoritative_payment": is_authoritative_payment,
             "payment_reference": payment_reference,
             "agent_reply": "",
+            "explanation_hi": None,
             "chip_status": "pending",
             "approval_card": None,
             "action_card": None,
+            "vasooli_card": None,
             "refusal_reason": None,
             "error": None,
         }
         res = self.graph.invoke(initial_state)
         reply = res.get("agent_reply")
+
+        # Ensure cards are cross-populated for frontend consistency
+        card = res.get("vasooli_card") or res.get("approval_card") or res.get("action_card")
+        if card:
+            if not res.get("vasooli_card"):
+                res["vasooli_card"] = card
+            if not res.get("action_card"):
+                res["action_card"] = card
+            if not res.get("approval_card") and card.get("status") == "AWAITING_APPROVAL":
+                res["approval_card"] = card
+
         if gemini_adapter.is_available() and not res.get("refusal_reason") and not res.get("error"):
+            action_c = res.get("action_card") or {}
+            ground_truth = {
+                "customer_name": res.get("customer_name"),
+                "amount_paise": res.get("amount_paise"),
+                "action_type": res.get("action_type"),
+                "chip_status": res.get("chip_status"),
+                "total_outstanding": action_c.get("total_outstanding_formatted"),
+                "total_recovered_today": action_c.get("total_recovered_formatted"),
+                "top_debtor": action_c.get("top_debtor"),
+                "customers_breakdown": action_c.get("customers"),
+                "action_card": res.get("action_card"),
+                "approval_card": res.get("approval_card"),
+                "vasooli_card": res.get("vasooli_card"),
+                "deterministic_reply": reply,
+            }
             llm_exp = gemini_adapter.generate_explanation(
                 agent_name="VasooliAgent",
                 branch=res.get("action_type", ""),
-                ground_truth={
-                    "customer_name": res.get("customer_name"),
-                    "amount_paise": res.get("amount_paise"),
-                    "action_card": res.get("action_card") or res.get("approval_card"),
-                    "chip_status": res.get("chip_status"),
-                    "deterministic_reply": reply,
-                },
+                ground_truth=ground_truth,
                 user_query=query_text,
             )
             if llm_exp and llm_exp.reply:
@@ -532,4 +906,6 @@ class VasooliAgent:
                     res["agent_reply"] = f"{reply}\n\n{llm_exp.reply}"
                 else:
                     res["agent_reply"] = llm_exp.reply
+                if llm_exp.explanation_hi:
+                    res["explanation_hi"] = llm_exp.explanation_hi
         return res

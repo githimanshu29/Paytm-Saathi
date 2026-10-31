@@ -1,0 +1,111 @@
+
+///##vasooli
+Evaluation Queries Tested Against Live Agent:
+give me all details about my udhar: Returns total ledger breakdown, highlights Amit Shukla (₹1,500), and renders VASOOLI_LEDGER_CARD.
+Vikram ka udhare kitna hai ??: Explains ₹850.00 balance and renders reminder approval card.
+Vikram ko polite reminder bhejo udhari chukane k lie: Drafts reminder with AWAITING_APPROVAL status and [Approve & Send Reminder] button.
+who owes the most udhar?: Identifies Amit Shukla (₹1,500) and recommends a 3-part installment plan.
+Sunita Devi ko reminder bhejo: Enforces policy refusal due to REVOKED consent.
+Manish Gupta ko reminder bhejo: Enforces policy pause due to DISPUTED status.
+
+
+
+
+//#####resolve agent
+Evaluation & Demo Queries Tested Against Live Resolve Agent:
+1. Show me all failed payments today: Returns interactive RESOLVE_DISPUTE_CARD with 4-pill metric summary (Auto-Reversing, Stuck, Confirmed, Security Hold), bank investigation queue, and 1-tap quick action buttons.
+2. Customer Alok says ₹250 failed, did money get deducted?: Enforces NPCI U30 auto-reversal in progress (24-48 banking hours SLA) and warns NOT to give goods on credit.
+3. Should I give goods to Alok?: Contextual merchant advisory: Saathi gives a crystal-clear "NO" with reasons why goods should not be released until bank confirmation.
+4. Deepak Verma payment of ₹500 is stuck for 3 days: Enforces Branch B (U69 stuck reversal) with 1-tap [Approve Refund Review] button and full settlement balance protection.
+5. Will refund review deduct from my settlement balance?: Direct advisory reassurance: "No! Authorizing this review does NOT deduct from your settlement balance."
+6. Customer Pooja says ₹320 was debited but Soundbox did not speak, did it go through?: Confirms transaction is SUCCESSFUL, explains soundbox chime latency, and advises merchant it is 100% safe.
+7. Can I release goods to Pooja?: Direct affirmative advisory: "Yes, absolutely! You can safely release goods to Pooja Chawla."
+8. Suspicious payment of ₹1200 from unknown customer, check if fake: Flags Code ZA security hold, escalates to Compliance & Risk operations, and instructs merchant not to issue manual cash refunds.
+9. Can I give cash refund to a customer for failed UPI?: Paytm policy explanation warning against double loss (cash given out + automated bank reversal).
+10. What is U30 error code?: Plain-language explanation of NPCI bank timeout error and automated 24-48h credit back.
+
+
+
+//#####fix agent
+Login as Merchant: Select Ramesh Sharma (9876543210, OTP: 123456).
+Turn 1: Type "Mera soundbox kaam nahi kar raha, koi awaz nahi aayi". Notice Saathi checks battery (88%) and asks them to hold the '+' button for 2 seconds with interactive quick buttons.
+Turn 2: Click [❌ Nahi, Awaaz Nahi Aayi]. Notice an OTA reset packet is sent and Step 2 instructions appear.
+Turn 3: Click [🔴 Abhi Bhi Red Hai / Chup Hai]. Notice Saathi verifies fresh telemetry, notes the device remains unreachable, and books an on-site technician (Tomorrow 10:00 AM - 12:00 PM) with Case ID #case_tech_....
+Show Judges the Employee Control Tower: Switch to http://localhost:5173 (support@paytm.demo / Demo@1234), go to Fix (Devices/Soundbox), and show the case logged in the needs_human bucket with full audit trail!
+
+
+
+//#####resolve agent
+1. Overview Query:
+   "Show me all failed payments today"
+   -> Displays RESOLVE_DISPUTE_CARD with a 4-pill metric bar (Auto-Reversing, Stuck, Confirmed, Security Hold), 
+      the complete bank queue, and 1-tap quick action buttons.
+
+2. Auto-Reversal In-Progress (Branch A):
+   "Customer Alok says ₹250 failed, did money get deducted?"
+   -> Chip: VERIFIED. Explains NPCI U30 24–48 banking hours SLA and explicitly warns: 
+      "Do NOT provide goods on credit."
+
+3. Contextual Merchant Advisory (Branch A Follow-up):
+   "Should I give goods to Alok?"
+   -> Clear Advisory: "No, do NOT provide goods on credit! The payment failed at the remitter bank and will auto-reverse."
+
+4. Stuck Bank Reversal & Approval Gate (Branch B):
+   "Deepak Verma payment of ₹500 is stuck for 3 days"
+   -> Chip: AWAITING_APPROVAL. Displays interactive REFUND_REVIEW_APPROVAL card for UTR PAYTM_STUCK_881920.
+
+5. Merchant Protection Advisory:
+   "Will refund review deduct from my settlement balance?"
+   -> Clear Reassurance: "No! Authorizing this review does NOT deduct from your settlement balance. It queues an operations investigation with the remitter bank."
+
+6. Payment Confirmed / Chime Latency (Branch C):
+   "Customer Pooja says ₹320 was debited but Soundbox did not speak, did it go through?"
+   -> Confirms transaction is SUCCESSFUL and credited to settlement balance.
+
+7. Release Goods Advisory:
+   "Can I release goods to Pooja?"
+   -> Clear Advisory: "Yes, absolutely! You can safely release goods to Pooja Chawla."
+
+8. Fraud & Security Escalation (Branch D):
+   "Suspicious payment of ₹1200 from unknown customer, check if fake"
+   -> Flags Code ZA security hold, escalates to Compliance & Risk operations, and instructs merchant not to issue manual cash refunds.
+
+9. Policy Advisory (Cash Refund FAQ):
+   "Can I give cash refund to a customer for failed UPI?"
+   -> Explains Paytm policy: warns against double financial loss (cash given out + automated bank reversal).
+
+10. Banking Terminology FAQ:
+    "What is U30 error code?"
+    -> Explains NPCI bank timeout error in plain words.
+
+
+
+//#####reconcile agent
+Evaluation & Demo Queries Tested Against Live Reconcile Agent:
+1. Daily Settlement Breakdown:
+   "Show settlement breakdown for yesterday" (or "Kal ka settlement kitna aaya?")
+   -> Chip: VERIFIED. Displays SETTLEMENT_BREAKDOWN card confirming Gross Sales (₹10,000.00), Refunds (-₹500.00), Fees (-₹300.00), and Net Bank Deposit (₹9,200.00) transferred via UTR ICICINODAL99281028. Settlement reconciles completely.
+
+2. Fee Breakdown & Service Explanation:
+   "Meri fees kyu kati?" (or "Why was ₹300 fee deducted?")
+   -> Explains exact service deductions: ₹250.00 Soundbox 4G Pro monthly subscription (device warranty + unlimited 4G SIM) and ₹50.00 commercial MDR. Reassures merchant that standard customer UPI has 0% MDR.
+
+3. Automated Payout Timing & Schedule:
+   "When will today's settlement hit my bank account?" (or "Settlement kab aayega?")
+   -> Plain-language advisory: Daily automated bank payouts process at 7:00 AM every morning (T+1 daily schedule) via ICICI Nodal Account. Highlights Paytm's Instant Settlement option for immediate daytime needs.
+
+4. MDR Policy & Fee Waiver FAQ:
+   "What is MDR fee?" (or "Can MDR fee be waived?")
+   -> Plain-language explanation: 0% MDR on standard customer UPI QR payments, 0.4%-0.9% on commercial cards, and ₹250 Soundbox rental. Recommends the Kirana Booster offer for active merchants to earn fee waiver promotions.
+
+5. Multi-Day Discrepancy Health Scan:
+   "Check all my settlements for discrepancy" (or "Kahi koi shortfall hai kya?")
+   -> Chip: NEEDS_HUMAN. Audits both recent settlements: 28 Oct is fully reconciled (₹9,200.00), but 27 Oct has an unexplained shortfall of ₹1,200.00 with priority Case ID queued in Nodal Settlement Operations.
+
+6. Settlement Shortfall & Evidence Submission:
+   "Explain 27 Oct settlement, payout received is lower than expected"
+   -> Chip: NEEDS_HUMAN. Renders SETTLEMENT_BREAKDOWN card highlighting -₹1,200.00 shortfall with 1-tap [📷 Attach Passbook / Statement Proof] action button.
+
+7. Hardware Subscription Inquiry:
+   "Soundbox rental charge kitna lagta hai?"
+   -> Breaks down flat ₹250/mo Soundbox 4G Pro subscription covering device warranty, battery servicing, and unlimited 4G SIM data.

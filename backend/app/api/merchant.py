@@ -3,9 +3,20 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.db.models import Merchant, Device, Transaction, Receivable, Customer
+from app.db.models import (
+    Merchant,
+    Device,
+    Transaction,
+    Receivable,
+    Customer,
+    Task,
+    TaskBucket,
+    ActionApproval,
+    ApprovalDecision,
+)
 from app.api.auth import get_current_user
 from app.policy.audit import audit_log
+from app.agents.resolve import ResolveAgent
 from app.schemas.merchant import (
     MerchantSummaryResponse,
     DeviceSummary,
@@ -15,6 +26,9 @@ from app.schemas.merchant import (
     ReceivableItem,
     ChatMessageRequest,
     ChatMessageResponse,
+    ApprovalCardData,
+    ApprovalDecisionRequest,
+    ApprovalDecisionResponse,
 )
 
 merchant_router = APIRouter(prefix="/merchant", tags=["Merchant Operations"])
@@ -58,7 +72,6 @@ def get_merchant_summary(
     db: Session = Depends(get_db),
 ):
     merchant_id = user.get("sub")
-    user_type = user.get("user_type")
 
     # If employee inspects, fallback to merchant_id if passed or primary merchant
     merchant = db.query(Merchant).filter_by(id=merchant_id).first()
@@ -173,30 +186,99 @@ def send_chat_message(
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    merchant_id = user.get("sub", "mer_demo")
-    store_name = user.get("store_name", "Sharma Kirana")
-
-    # Record message in audit trail
+    merchant_id = user.get("sub", "mer_sharma_kirana")
+    
+    # Audit incoming merchant message
     audit_log(
         db=db,
         actor=merchant_id,
         action="MERCHANT_CHAT_MESSAGE_RECEIVED",
         target="saathi_brain_orchestrator",
         result="RECEIVED",
-        policy_decision_id="dec_chat_phase2_canned",
+        policy_decision_id="dec_chat_resolve_route",
     )
 
-    # Canned clearly-labeled prototype reply confirming end-to-end wiring
-    reply_text = (
-        f"[Saathi Prototype · Phase 2] Namaste {store_name}! "
-        f"I received your message: \"{req.message}\". "
-        f"Multi-agent autonomous coordination will activate in the next phases. "
-        f"For now, your Soundbox and settlements are active and monitored!"
+    # Invoke Phase 4 Resolve Specialist Agent
+    agent = ResolveAgent(db)
+    result = agent.run(
+        merchant_id=merchant_id,
+        query_text=req.message,
+        actor_id=merchant_id,
     )
+
+    approval_card_data = None
+    if result.get("approval_card"):
+        approval_card_data = ApprovalCardData(**result["approval_card"])
 
     return ChatMessageResponse(
-        reply=reply_text,
+        reply=result["agent_reply"],
         sender="saathi",
         timestamp=datetime.now(timezone.utc).strftime("%I:%M %p"),
+        branch=result.get("branch"),
+        chip_status=result.get("chip_status"),
+        explanation_en=result.get("explanation_en"),
+        explanation_hi=result.get("explanation_hi"),
+        tx_ref=result.get("tx_ref"),
+        case_id=result.get("case_id"),
+        approval_card=approval_card_data,
         is_synthetic=True,
+    )
+
+@merchant_router.post("/approvals/{approval_id}/decide", response_model=ApprovalDecisionResponse)
+def decide_approval(
+    approval_id: str,
+    req: ApprovalDecisionRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    merchant_id = user.get("sub", "mer_sharma_kirana")
+
+    approval = db.query(ActionApproval).filter_by(id=approval_id).first()
+    if not approval:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Approval request {approval_id} not found.",
+        )
+
+    decision_norm = req.decision.upper()
+    if decision_norm not in ("APPROVED", "REJECTED"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Decision must be either 'APPROVED' or 'REJECTED'.",
+        )
+
+    approval.decision = ApprovalDecision[decision_norm]
+    
+    # Update linked task state
+    task_id = approval.task_id or ""
+    chip_status = "executed" if decision_norm == "APPROVED" else "needs_human"
+    
+    if approval.task_id:
+        task = db.query(Task).filter_by(id=approval.task_id).first()
+        if task:
+            if decision_norm == "APPROVED":
+                task.bucket = TaskBucket.EXECUTED
+                task.description = f"{task.description} [Approved by merchant on {datetime.now(timezone.utc).strftime('%d %b %H:%M')}]"
+            else:
+                task.bucket = TaskBucket.NEEDS_HUMAN
+                task.description = f"{task.description} [Rejected by merchant: {req.reason or 'Dismissed'}]"
+
+    # Audit merchant decision
+    audit_log(
+        db=db,
+        actor=merchant_id,
+        action="MERCHANT_APPROVAL_DECISION",
+        target=approval.id,
+        result=decision_norm,
+        policy_decision_id="dec_approval_merchant_action",
+    )
+
+    db.commit()
+
+    return ApprovalDecisionResponse(
+        approval_id=approval.id,
+        task_id=task_id,
+        decision=decision_norm,
+        chip_status=chip_status,
+        message=f"Action successfully {decision_norm.lower()} by merchant.",
     )

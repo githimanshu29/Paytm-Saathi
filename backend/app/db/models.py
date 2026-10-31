@@ -36,6 +36,12 @@ class ApprovalDecision(str, enum.Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
 
+class TransactionStatus(str, enum.Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    PENDING = "PENDING"
+    REVERSED = "REVERSED"
+
 class Tenant(Base):
     __tablename__ = "tenants"
 
@@ -120,6 +126,11 @@ class Transaction(Base):
     payment_rail = Column(String(50), default="UPI", nullable=False)
     utr_or_ref = Column(String(100), nullable=True)
     customer_name = Column(String(255), nullable=True)
+    
+    # Extended payment status fields
+    bank_response_code = Column(String(50), nullable=True)
+    reversal_status = Column(String(50), nullable=True)
+    payer_vpa = Column(String(100), nullable=True)
     
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)

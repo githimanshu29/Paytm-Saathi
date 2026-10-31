@@ -34,13 +34,13 @@ def test_merchant_summary_authenticated(client, merchant_token):
     assert data["device"]["chip_status"] == "verified"
     assert data["device"]["battery_level"] == 88
 
-    # Payment summary from seeded transactions
+    # Payment summary from seeded transactions (15000 + 45000 + 32000 confirmed = 92000 paise)
     payments = data["payments"]
-    assert payments["today_total_paise"] == 60000  # 15000 + 45000 paise
-    assert "₹600.00" in payments["today_total_formatted"]
-    assert payments["today_count"] == 2
+    assert payments["today_total_paise"] == 92000
+    assert "₹920.00" in payments["today_total_formatted"]
+    assert payments["today_count"] == 3
     assert payments["chip_status"] == "verified"
-    assert len(payments["recent_transactions"]) >= 2
+    assert len(payments["recent_transactions"]) >= 3
 
     # Dues summary from seeded receivables
     dues = data["dues"]
@@ -57,7 +57,7 @@ def test_merchant_summary_unauthenticated_rejected(client):
     assert "Authorization header" in res.json()["detail"]
 
 def test_merchant_chat_message_roundtrip(client, merchant_token):
-    msg = "How is my Soundbox battery doing?"
+    msg = "Customer Alok ₹250 auto reversal status check"
     res = client.post(
         "/merchant/chat/message",
         headers={"Authorization": f"Bearer {merchant_token}"},
@@ -66,9 +66,10 @@ def test_merchant_chat_message_roundtrip(client, merchant_token):
     assert res.status_code == 200
     data = res.json()
 
-    assert "[Saathi Prototype · Phase 2]" in data["reply"]
-    assert msg in data["reply"]
     assert data["sender"] == "saathi"
+    assert data["branch"] == "A_AUTO_REVERSAL"
+    assert data["chip_status"] == "verified"
+    assert "24–48 banking hours" in data["reply"]
     assert data["is_synthetic"] is True
 
     # Verify audit event logged

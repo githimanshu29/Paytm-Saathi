@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Ensure backend root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -26,6 +26,7 @@ from app.db.models import (
 def seed_demo_data():
     db = SessionLocal()
     try:
+        now = datetime.now(timezone.utc)
         # Check if tenant exists
         tenant = db.query(Tenant).filter_by(id="tenant_paytm_demo").first()
         if not tenant:
@@ -121,8 +122,8 @@ def seed_demo_data():
                 )
             )
 
-            # Transactions (amounts in paise)
-            t1_date = datetime.utcnow() - timedelta(minutes=45)
+            # Baseline successful transactions (amounts in paise)
+            t1_date = now - timedelta(minutes=45)
             db.add(
                 Transaction(
                     id="txn_sharma_001",
@@ -134,6 +135,9 @@ def seed_demo_data():
                     payment_rail="UPI",
                     utr_or_ref="PAYTM_UTR_90812301",
                     customer_name="Pankaj Roy",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="pankaj@okaxis",
                     is_synthetic=True,
                     environment="DEMO",
                     created_at=t1_date,
@@ -150,9 +154,97 @@ def seed_demo_data():
                     payment_rail="UPI",
                     utr_or_ref="PAYTM_UTR_90812302",
                     customer_name="Sneha Patil",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="sneha@okhdfcbank",
                     is_synthetic=True,
                     environment="DEMO",
-                    created_at=datetime.utcnow() - timedelta(hours=2),
+                    created_at=now - timedelta(hours=2),
+                )
+            )
+
+            # --- Phase 4 Scenario Transactions for Resolve Agent ---
+            # (a) Auto-reversal in progress (NPCI U30: expected timeline T+2 / 24-48 hrs)
+            db.add(
+                Transaction(
+                    id="txn_failed_autoreversal",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=25000,  # 250.00 INR
+                    currency="INR",
+                    status="FAILED",
+                    payment_rail="UPI",
+                    utr_or_ref="PAYTM_REV_AUTO_991201",
+                    customer_name="Alok Gupta",
+                    bank_response_code="U30_AUTO_REVERSAL",
+                    reversal_status="IN_PROGRESS",
+                    payer_vpa="alok@okhdfcbank",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=now - timedelta(hours=3),
+                )
+            )
+
+            # (b) Reversal stuck (NPCI U69 timeout, >48h old) -> requires refund review task
+            db.add(
+                Transaction(
+                    id="txn_stuck_reversal",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=50000,  # 500.00 INR
+                    currency="INR",
+                    status="FAILED",
+                    payment_rail="UPI",
+                    utr_or_ref="PAYTM_STUCK_881920",
+                    customer_name="Deepak Verma",
+                    bank_response_code="U69_REVERSAL_STUCK",
+                    reversal_status="STUCK",
+                    payer_vpa="deepak@paytm",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=now - timedelta(hours=52),
+                )
+            )
+
+            # (c) Actually succeeded (Bank 00) -> customer claimed failure, but payment was credited
+            db.add(
+                Transaction(
+                    id="txn_success_confirmed",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=32000,  # 320.00 INR
+                    currency="INR",
+                    status="SUCCESS",
+                    payment_rail="UPI",
+                    utr_or_ref="PAYTM_SUCC_771829",
+                    customer_name="Pooja Chawla",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="pooja@icici",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=now - timedelta(hours=1),
+                )
+            )
+
+            # (d) Ambiguous / fraud-flavored (Bank ZA security hold) -> escalates to needs_human
+            db.add(
+                Transaction(
+                    id="txn_fraud_ambiguous",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=120000,  # 1,200.00 INR
+                    currency="INR",
+                    status="PENDING",
+                    payment_rail="UPI",
+                    utr_or_ref="PAYTM_FRAUD_661904",
+                    customer_name="Unknown Payer",
+                    bank_response_code="ZA_SECURITY_HOLD",
+                    reversal_status="NONE",
+                    payer_vpa="suspicious.vpa.99@ybl",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=now - timedelta(hours=4),
                 )
             )
 
@@ -177,7 +269,7 @@ def seed_demo_data():
                     merchant_id=m1.id,
                     customer_id=c1.id,
                     amount=85000,  # 850.00 INR
-                    due_date=datetime.utcnow() + timedelta(days=3),
+                    due_date=now + timedelta(days=3),
                     status="PENDING",
                     notes="Aata bag and spices bought on credit",
                     is_synthetic=True,
@@ -215,7 +307,7 @@ def seed_demo_data():
             )
             db.add(t_executed)
 
-        # Merchant 2: Verma Sweets - Soundbox error + pending approval
+        # Merchant 2: Suresh Verma (Kanpur)
         m2 = db.query(Merchant).filter_by(id="mer_verma_sweets").first()
         if not m2:
             m2 = Merchant(
@@ -260,9 +352,12 @@ def seed_demo_data():
                     payment_rail="UPI",
                     utr_or_ref="PAYTM_FAIL_4049182",
                     customer_name="Manoj Tiwari",
+                    bank_response_code="U69_REVERSAL_STUCK",
+                    reversal_status="STUCK",
+                    payer_vpa="manoj@ybl",
                     is_synthetic=True,
                     environment="DEMO",
-                    created_at=datetime.utcnow() - timedelta(hours=3),
+                    created_at=now - timedelta(hours=3),
                 )
             )
 
@@ -292,13 +387,13 @@ def seed_demo_data():
                     reason="Merchant authorization required to restart device remotely or schedule visit",
                     risk_tier="R2",
                     proposal_hash="hash_ota_sim_refresh_verma_202",
-                    expires_at=datetime.utcnow() + timedelta(hours=24),
+                    expires_at=now + timedelta(hours=24),
                     is_synthetic=True,
                     environment="DEMO",
                 )
             )
 
-        # Merchant 3: Gupta Electronics - Incomplete KYC requiring human compliance review
+        # Merchant 3: Neha Gupta (Delhi)
         m3 = db.query(Merchant).filter_by(id="mer_gupta_electronics").first()
         if not m3:
             m3 = Merchant(
@@ -332,7 +427,7 @@ def seed_demo_data():
             )
             db.add(t_needs_human)
 
-        # Merchant 4: Laxmi Dairy - Dormant merchant pending revival plan
+        # Merchant 4: Dinesh Yadav (Lucknow)
         m4 = db.query(Merchant).filter_by(id="mer_laxmi_dairy").first()
         if not m4:
             m4 = Merchant(
@@ -378,9 +473,12 @@ def seed_demo_data():
                     payment_rail="UPI",
                     utr_or_ref="PAYTM_HIST_109283",
                     customer_name="Ravi Kumar",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="ravi@okhdfcbank",
                     is_synthetic=True,
                     environment="DEMO",
-                    created_at=datetime.utcnow() - timedelta(days=22),
+                    created_at=now - timedelta(days=22),
                 )
             )
 
@@ -399,7 +497,7 @@ def seed_demo_data():
             )
             db.add(t_pending)
 
-        # Seed initial audit trail
+        # Initial audit log
         audit_event = AuditEvent(
             id="audit_initial_seed",
             tenant_id=tenant.id,
@@ -415,7 +513,7 @@ def seed_demo_data():
         db.add(audit_event)
 
         db.commit()
-        print("Demo data successfully seeded for 4 merchants, 4 employees, devices, tasks, transactions, and audit trail.")
+        print("Demo data successfully seeded with Phase 4 scenario transactions.")
     except Exception as e:
         db.rollback()
         print(f"Error seeding demo data: {e}")

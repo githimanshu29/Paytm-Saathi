@@ -54,8 +54,38 @@ class MerchantSummaryResponse(BaseModel):
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=1000)
 
+class ApprovalCardData(BaseModel):
+    type: str
+    task_id: str
+    approval_id: str
+    title: str
+    utr: Optional[str] = None
+    customer: Optional[str] = None
+    risk_tier: str
+    reason: str
+    note: str
+    status: str
+
 class ChatMessageResponse(BaseModel):
     reply: str
     sender: str = "saathi"
     timestamp: str
+    branch: Optional[str] = None
+    chip_status: Optional[str] = None
+    explanation_en: Optional[str] = None
+    explanation_hi: Optional[str] = None
+    tx_ref: Optional[str] = None
+    case_id: Optional[str] = None
+    approval_card: Optional[ApprovalCardData] = None
     is_synthetic: bool = True
+
+class ApprovalDecisionRequest(BaseModel):
+    decision: str = Field(..., description="APPROVED or REJECTED")
+    reason: Optional[str] = None
+
+class ApprovalDecisionResponse(BaseModel):
+    approval_id: str
+    task_id: str
+    decision: str
+    chip_status: str
+    message: str

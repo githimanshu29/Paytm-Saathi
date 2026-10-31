@@ -92,11 +92,30 @@ interface MerchantSummary {
   dues: DuesSummary;
 }
 
+interface ApprovalCardData {
+  type: string;
+  task_id: string;
+  approval_id: string;
+  title: string;
+  utr?: string;
+  customer?: string;
+  risk_tier: string;
+  reason: string;
+  note: string;
+  status: string;
+}
+
 interface ChatMessage {
   id: string;
   sender: 'user' | 'saathi';
   text: string;
   timestamp: string;
+  branch?: string;
+  chip_status?: StatusType;
+  explanation_en?: string;
+  explanation_hi?: string;
+  approval_card?: ApprovalCardData | null;
+  approval_decided?: 'APPROVED' | 'REJECTED';
 }
 
 export default function App() {
@@ -123,12 +142,14 @@ export default function App() {
     {
       id: 'msg_welcome',
       sender: 'saathi',
-      text: 'Namaste! I am Saathi, your Kirana AI teammate. I am actively monitoring your Soundbox, settlements, and customer udhaar. What can I check for you?',
+      text: 'Namaste! I am Saathi, your Kirana AI teammate. I actively investigate payment disputes, failed transfers, and Soundbox status. What can I check for you?',
       timestamp: '10:00 AM',
+      chip_status: 'verified',
     },
   ]);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [approvalSubmittingId, setApprovalSubmittingId] = useState<string | null>(null);
 
   // Load saved token on mount
   useEffect(() => {
@@ -275,9 +296,9 @@ export default function App() {
     } catch (_e) {}
   };
 
-  // Chat: Send message to Python backend
-  const handleSendMessage = async () => {
-    const text = chatInput.trim();
+  // Chat: Send message to Python backend (invoking Resolve Agent)
+  const handleSendMessage = async (textToSend?: string) => {
+    const text = (textToSend || chatInput).trim();
     if (!text || !token) return;
 
     const userMsg: ChatMessage = {
@@ -288,7 +309,7 @@ export default function App() {
     };
 
     setChatMessages((prev) => [...prev, userMsg]);
-    setChatInput('');
+    if (!textToSend) setChatInput('');
     setChatSending(true);
 
     try {
@@ -309,6 +330,11 @@ export default function App() {
         sender: 'saathi',
         text: data.reply,
         timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        branch: data.branch,
+        chip_status: (data.chip_status as StatusType) || 'verified',
+        explanation_en: data.explanation_en,
+        explanation_hi: data.explanation_hi,
+        approval_card: data.approval_card,
       };
 
       setChatMessages((prev) => [...prev, saathiMsg]);
@@ -318,10 +344,45 @@ export default function App() {
         sender: 'saathi',
         text: 'Unable to reach Saathi Brain right now. Please check your connection.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        chip_status: 'needs_human',
       };
       setChatMessages((prev) => [...prev, errorMsg]);
     } finally {
       setChatSending(false);
+    }
+  };
+
+  // Chat: Handle merchant decision on inline approval card
+  const handleDecideApproval = async (messageId: string, approvalId: string, decision: 'APPROVED' | 'REJECTED') => {
+    if (!token) return;
+    setApprovalSubmittingId(approvalId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/merchant/approvals/${approvalId}/decide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ decision }),
+      });
+
+      if (res.ok) {
+        setChatMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === messageId) {
+              return {
+                ...m,
+                approval_decided: decision,
+                chip_status: (decision === 'APPROVED' ? 'executed' : 'needs_human') as StatusType,
+              };
+            }
+            return m;
+          })
+        );
+      }
+    } catch (_e) {
+    } finally {
+      setApprovalSubmittingId(null);
     }
   };
 
@@ -662,7 +723,7 @@ export default function App() {
         </View>
       )}
 
-      {/* TAB 2: SAATHI CHAT TAB */}
+      {/* TAB 2: SAATHI CHAT TAB (Resolve Specialist Agent Enabled) */}
       {activeTab === 'CHAT' && (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -678,9 +739,39 @@ export default function App() {
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
               <Text style={styles.chatHeaderTitle}>Saathi Assistant</Text>
-              <Text style={styles.chatHeaderSubtitle}>AI Teammate Connected</Text>
+              <Text style={styles.chatHeaderSubtitle}>Resolve Agent · Switch Connected</Text>
             </View>
-            <StatusChipNative status="verified" size="sm" label="Online" />
+            <StatusChipNative status="verified" size="sm" label="Active" />
+          </View>
+
+          {/* Scenario Quick-Test Chips */}
+          <View style={styles.quickChipsBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsScroll}>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Check customer Alok ₹250 auto-reversal')}
+              >
+                <Text style={styles.quickChipText}>⚡ ₹250 Auto-Reversal (Branch A)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Deepak Verma ₹500 stuck reversal need refund review')}
+              >
+                <Text style={styles.quickChipText}>⏱ ₹500 Stuck Reversal (Branch B)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Customer Pooja ₹320 chime not heard confirm status')}
+              >
+                <Text style={styles.quickChipText}>✅ ₹320 Confirmed (Branch C)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Suspicious unknown payment ₹1200 potential fraud')}
+              >
+                <Text style={styles.quickChipText}>🛡 ₹1,200 Security Escalation (Branch D)</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
 
           {/* Chat Messages Stream */}
@@ -705,6 +796,27 @@ export default function App() {
                       isSaathi ? styles.bubbleSaathi : styles.bubbleUser,
                     ]}
                   >
+                    {/* Saathi Status Badge Header */}
+                    {isSaathi && msg.chip_status && (
+                      <View style={styles.chatBubbleHeader}>
+                        <StatusChipNative
+                          status={msg.chip_status}
+                          size="sm"
+                          label={
+                            msg.branch === 'A_AUTO_REVERSAL'
+                              ? 'Auto-Reversing'
+                              : msg.branch === 'B_STUCK_REFUND_REVIEW'
+                              ? 'Refund Review'
+                              : msg.branch === 'C_PAYMENT_CONFIRMED'
+                              ? 'Settled'
+                              : msg.branch === 'D_FRAUD_ESCALATED'
+                              ? 'Security Escalation'
+                              : 'Verified'
+                          }
+                        />
+                      </View>
+                    )}
+
                     <Text
                       style={[
                         styles.chatBubbleText,
@@ -713,6 +825,97 @@ export default function App() {
                     >
                       {msg.text}
                     </Text>
+
+                    {/* Bilingual Hindi Explanation Card */}
+                    {isSaathi && msg.explanation_hi && (
+                      <View style={styles.hindiExplanationCard}>
+                        <Text style={styles.hindiLabel}>🇮🇳 ग्राहक के लिए संदेश (HINDI)</Text>
+                        <Text style={styles.hindiText}>{msg.explanation_hi}</Text>
+                      </View>
+                    )}
+
+                    {/* Inline Human Approval Card (Branch B Refund Review) */}
+                    {isSaathi && msg.approval_card && (
+                      <View style={styles.approvalCardContainer}>
+                        <View style={styles.approvalCardHeader}>
+                          <Text style={styles.approvalCardTitle}>{msg.approval_card.title}</Text>
+                          <StatusChipNative
+                            status={
+                              msg.approval_decided === 'APPROVED'
+                                ? 'executed'
+                                : msg.approval_decided === 'REJECTED'
+                                ? 'needs_human'
+                                : 'awaiting_approval'
+                            }
+                            size="sm"
+                            label={
+                              msg.approval_decided === 'APPROVED'
+                                ? 'Review Submitted'
+                                : msg.approval_decided === 'REJECTED'
+                                ? 'Dismissed'
+                                : 'Authorization Required'
+                            }
+                          />
+                        </View>
+
+                        <Text style={styles.approvalReasonText}>
+                          Reason: {msg.approval_card.reason}
+                        </Text>
+                        <Text style={styles.approvalMetaText}>
+                          Customer: {msg.approval_card.customer} · UTR: {msg.approval_card.utr}
+                        </Text>
+
+                        {/* Safety Disclaimer Banner */}
+                        <View style={styles.approvalNoteBox}>
+                          <Text style={styles.approvalNoteText}>
+                            🛡 {msg.approval_card.note}
+                          </Text>
+                        </View>
+
+                        {/* Decision Buttons */}
+                        {!msg.approval_decided ? (
+                          <View style={styles.approvalActionRow}>
+                            <TouchableOpacity
+                              style={[
+                                styles.approvalApproveBtn,
+                                approvalSubmittingId === msg.approval_card.approval_id && styles.buttonDisabled,
+                              ]}
+                              disabled={approvalSubmittingId === msg.approval_card.approval_id}
+                              onPress={() =>
+                                handleDecideApproval(msg.id, msg.approval_card!.approval_id, 'APPROVED')
+                              }
+                            >
+                              {approvalSubmittingId === msg.approval_card.approval_id ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                              ) : (
+                                <Text style={styles.approvalApproveBtnText}>
+                                  ✓ Authorize Review Request
+                                </Text>
+                              )}
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.approvalRejectBtn}
+                              disabled={approvalSubmittingId === msg.approval_card.approval_id}
+                              onPress={() =>
+                                handleDecideApproval(msg.id, msg.approval_card!.approval_id, 'REJECTED')
+                              }
+                            >
+                              <Text style={styles.approvalRejectBtnText}>Dismiss</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <View style={styles.approvalDecidedBanner}>
+                            <Text style={styles.approvalDecidedText}>
+                              {msg.approval_decided === 'APPROVED'
+                                ? '✓ Review request authorized by merchant. Operations team notified.'
+                                : '✗ Dismissed by merchant.'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
                     <Text
                       style={[
                         styles.chatTimestamp,
@@ -731,7 +934,7 @@ export default function App() {
                 <View style={[styles.chatBubble, styles.bubbleSaathi]}>
                   <ActivityIndicator size="small" color={colors.paytmBlue} />
                   <Text style={[styles.chatBubbleText, styles.textSaathi, { marginTop: 4 }]}>
-                    Saathi is replying...
+                    Saathi Resolve investigating payment switch...
                   </Text>
                 </View>
               </View>
@@ -744,9 +947,9 @@ export default function App() {
               style={styles.chatTextInput}
               value={chatInput}
               onChangeText={setChatInput}
-              placeholder="Message Saathi (e.g. check Soundbox)..."
+              placeholder="Ask Saathi (e.g. 'Customer ₹250 failed')..."
               placeholderTextColor="#9CA3AF"
-              onSubmitEditing={handleSendMessage}
+              onSubmitEditing={() => handleSendMessage()}
               returnKeyType="send"
             />
             <TouchableOpacity
@@ -755,7 +958,7 @@ export default function App() {
                 (!chatInput.trim() || chatSending) && styles.sendDisabled,
               ]}
               disabled={!chatInput.trim() || chatSending}
-              onPress={handleSendMessage}
+              onPress={() => handleSendMessage()}
               activeOpacity={0.8}
             >
               <Text style={styles.chatSendText}>Send</Text>
@@ -1131,6 +1334,29 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontWeight: '600',
   },
+  quickChipsBar: {
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#BAE6FD',
+    paddingVertical: 6,
+  },
+  quickChipsScroll: {
+    paddingHorizontal: spacing.md,
+    gap: 8,
+  },
+  quickChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#00BAF2',
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  quickChipText: {
+    fontSize: 11,
+    color: colors.paytmBlue,
+    fontWeight: '700',
+  },
   chatMessageStream: {
     flex: 1,
   },
@@ -1149,7 +1375,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   chatBubble: {
-    maxWidth: '82%',
+    maxWidth: '85%',
     borderRadius: radii.card,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -1169,6 +1395,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paytmBlue,
     borderTopRightRadius: 4,
   },
+  chatBubbleHeader: {
+    marginBottom: 6,
+    alignSelf: 'flex-start',
+  },
   chatBubbleText: {
     fontSize: 13,
     lineHeight: 18,
@@ -1178,6 +1408,118 @@ const styles = StyleSheet.create({
   },
   textUser: {
     color: '#FFFFFF',
+  },
+  hindiExplanationCard: {
+    marginTop: 8,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: radii.sm,
+    padding: 8,
+  },
+  hindiLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B45309',
+    marginBottom: 2,
+  },
+  hindiText: {
+    fontSize: 12,
+    color: '#78350F',
+    lineHeight: 16,
+  },
+
+  // Inline Approval Card
+  approvalCardContainer: {
+    marginTop: 10,
+    backgroundColor: '#FFFBF2',
+    borderWidth: 1.5,
+    borderColor: '#F6C38B',
+    borderRadius: radii.card,
+    padding: 12,
+  },
+  approvalCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  approvalCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#7C2D12',
+    flex: 1,
+    marginRight: 6,
+  },
+  approvalReasonText: {
+    fontSize: 12,
+    color: '#9A3412',
+    lineHeight: 16,
+  },
+  approvalMetaText: {
+    fontSize: 10,
+    color: '#C2410C',
+    marginTop: 3,
+    fontWeight: '600',
+  },
+  approvalNoteBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 6,
+    padding: 6,
+    marginTop: 8,
+  },
+  approvalNoteText: {
+    fontSize: 10,
+    color: '#92400E',
+    lineHeight: 14,
+    fontWeight: '500',
+  },
+  approvalActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  approvalApproveBtn: {
+    flex: 1,
+    backgroundColor: colors.paytmBlue,
+    borderRadius: radii.pill,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalApproveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  approvalRejectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approvalRejectBtnText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  approvalDecidedBanner: {
+    marginTop: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 6,
+    padding: 6,
+  },
+  approvalDecidedText: {
+    fontSize: 11,
+    color: '#065F46',
+    fontWeight: '700',
+    textAlign: 'center',
   },
   chatTimestamp: {
     fontSize: 9,

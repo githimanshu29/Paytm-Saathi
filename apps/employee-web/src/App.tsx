@@ -40,6 +40,7 @@ import {
   Calendar,
   Award,
   Check,
+  GitMerge,
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -369,6 +370,14 @@ export function App() {
   const [simulatingPaymentId, setSimulatingPaymentId] = useState<string | null>(null);
   const [vasooliNotice, setVasooliNotice] = useState<string | null>(null);
 
+  // Phase 11: Multi-Agent Handoff Demo State
+  const [handoffMerchantId, setHandoffMerchantId] = useState('mer_singh_automobiles');
+  const [handoffStatus, setHandoffStatus] = useState<any>(null);
+  const [handoffTimeline, setHandoffTimeline] = useState<AuditEvent[]>([]);
+  const [handoffLoading, setHandoffLoading] = useState(false);
+  const [handoffStepExecuting, setHandoffStepExecuting] = useState<number | null>(null);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
+
   // Navigation tab state
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -691,6 +700,93 @@ export function App() {
     }
   };
 
+  // Fetch Multi-Agent Handoff data
+  const fetchHandoffData = useCallback(async () => {
+    try {
+      const [statusRes, timelineRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/demo/handoff/status?merchant_id=${handoffMerchantId}`),
+        fetch(`${API_BASE_URL}/employee/handoff/timeline?merchant_id=${handoffMerchantId}&limit=25`),
+      ]);
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setHandoffStatus(statusData);
+      }
+      if (timelineRes.ok) {
+        const timelineData = await timelineRes.json();
+        setHandoffTimeline(timelineData.events || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch handoff data', err);
+    }
+  }, [handoffMerchantId]);
+
+  const handleExecuteHandoffStep = async (step: number) => {
+    setHandoffStepExecuting(step);
+    setHandoffNotice(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/demo/handoff/step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step, merchant_id: handoffMerchantId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHandoffNotice(`Step ${step} executed: ${data.summary}`);
+        await Promise.all([fetchHandoffData(), fetchAuditLog(), fetchKPI()]);
+      } else {
+        const err = await res.json();
+        setHandoffNotice(`Step ${step} failed: ${err.detail || 'Error'}`);
+      }
+    } catch (e: any) {
+      setHandoffNotice(`Execution failed: ${e.message}`);
+    } finally {
+      setHandoffStepExecuting(null);
+    }
+  };
+
+  const handleRunAllHandoff = async () => {
+    setHandoffLoading(true);
+    setHandoffNotice('Executing all 6 handoff steps with narration pauses...');
+    try {
+      const res = await fetch(`${API_BASE_URL}/demo/handoff/run-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant_id: handoffMerchantId, pause_seconds: 0.2 }),
+      });
+      if (res.ok) {
+        setHandoffNotice('Complete 6-step cross-agent handoff executed! Chain: Revive -> Fix -> FieldMate -> Revive.');
+        await Promise.all([fetchHandoffData(), fetchAuditLog(), fetchKPI()]);
+      } else {
+        const err = await res.json();
+        setHandoffNotice(`Run failed: ${err.detail || 'Error'}`);
+      }
+    } catch (e: any) {
+      setHandoffNotice(`Run failed: ${e.message}`);
+    } finally {
+      setHandoffLoading(false);
+    }
+  };
+
+  const handleResetHandoff = async () => {
+    setHandoffLoading(true);
+    setHandoffNotice(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/demo/handoff/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merchant_id: handoffMerchantId }),
+      });
+      if (res.ok) {
+        setHandoffNotice('Demo reset: Soundbox OFFLINE (12%), volume drop 86%, visit scheduled.');
+        await Promise.all([fetchHandoffData(), fetchAuditLog(), fetchKPI()]);
+      }
+    } catch (e: any) {
+      setHandoffNotice(`Reset failed: ${e.message}`);
+    } finally {
+      setHandoffLoading(false);
+    }
+  };
+
   // Initial and Polling fetch
   useEffect(() => {
     if (!token) return;
@@ -740,6 +836,13 @@ export function App() {
       fetchVasooliOverview();
     }
   }, [token, activeTab, fetchVasooliOverview]);
+
+  // Fetch Handoff demo data when switching to handoff tab
+  useEffect(() => {
+    if (token && activeTab === 'handoff') {
+      fetchHandoffData();
+    }
+  }, [token, activeTab, fetchHandoffData]);
 
   // Fetch timeline when a case is selected for slide-over
   useEffect(() => {
@@ -985,6 +1088,7 @@ export function App() {
     { id: 'onboard', label: 'Onboard (KYC)', icon: UserCheck },
     { id: 'fieldmate', label: 'FieldMate (Sales Copilot)', icon: MapPin },
     { id: 'vasooli', label: 'Vasooli (Receivables)', icon: Coins },
+    { id: 'handoff', label: 'Agent Handoff Demo', icon: GitMerge },
     { id: 'audit', label: 'Activity & Audit Log', icon: History },
   ];
 
@@ -2717,6 +2821,288 @@ export function App() {
                       The instant an authoritative payment arrives (via UPI webhook), all pending approvals are auto-cancelled and reminder attempts cease immediately.
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'handoff' ? (
+            /* MULTI-AGENT CROSS-HANDOFF DEMO & HANDOFF TIMELINE */
+            <div className="space-y-6">
+              {/* Header Banner */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-[#1A1A1A]">Autonomous Multi-Agent Cross-Handoff Demo</h2>
+                  <p className="text-sm text-[#6B7280] mt-1">
+                    Live zero-human orchestration: Revive &rarr; Fix &rarr; FieldMate &rarr; Revive via authoritative database state
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleRunAllHandoff}
+                    disabled={handoffLoading}
+                    className="px-4 py-2 bg-[#002E6E] text-white text-xs font-bold rounded-lg shadow-sm hover:bg-[#001D48] transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{handoffLoading ? 'Running Chain...' : '⚡ Run Full 6-Step Chain'}</span>
+                  </button>
+                  <button
+                    onClick={handleResetHandoff}
+                    disabled={handoffLoading}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition flex items-center space-x-1.5"
+                    title="Reset device to OFFLINE and metrics to AT_RISK"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${handoffLoading ? 'animate-spin' : ''}`} />
+                    <span>Reset Demo</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Notice Alert Banner */}
+              {handoffNotice && (
+                <div className="p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-medium flex items-center justify-between shadow-xs">
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-[#00BAF2]" />
+                    <span>{handoffNotice}</span>
+                  </div>
+                  <button onClick={() => setHandoffNotice(null)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                </div>
+              )}
+
+              {/* Target Merchant Card & Status Badges */}
+              <div className="bg-white rounded-card p-5 border border-[#E5E7EB] shadow-soft">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Target Demonstration Merchant</span>
+                    <h3 className="text-lg font-bold text-gray-900">Singh Automobiles & Spares (mer_singh_automobiles)</h3>
+                    <p className="text-xs text-gray-500">Transport Nagar, Jaipur &bull; Assigned Rep: Amit Verma (emp_sales_01)</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                      Health: {handoffStatus?.merchant_health || 'AT_RISK'}
+                    </span>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                      handoffStatus?.device_status === 'ONLINE' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+                    }`}>
+                      Soundbox: {handoffStatus?.device_status || 'OFFLINE'}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                      Stage: {handoffStatus?.revival_stage || 'AT_RISK'}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      Visit: {handoffStatus?.visit_status || 'SCHEDULED'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 6-Step Visual Cross-Agent Flow Cards */}
+                <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {/* STEP 1 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 1 ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-800">
+                        Step 1 &bull; Revive Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(1)}
+                        disabled={handoffStepExecuting === 1 || handoffLoading}
+                        className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 1 ? 'Running...' : '▶ Run Step 1'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">Periodic Scan: Dormancy Detected</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      APScheduler scan flags Singh Automobiles: sales dropped 86% (recent ₹2,400 vs baseline ₹18,000).
+                    </p>
+                  </div>
+
+                  {/* STEP 2 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 2 ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-800">
+                        Step 2 &bull; Revive Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(2)}
+                        disabled={handoffStepExecuting === 2 || handoffLoading}
+                        className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 2 ? 'Running...' : '▶ Run Step 2'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">Root Cause Diagnosis: Soundbox Offline</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Reuses Fix's DeviceAdapter: SB-JAI-505 is OFFLINE (12% battery). Diagnosed as DEVICE_ISSUE &rarr; Hands off to Fix.
+                    </p>
+                  </div>
+
+                  {/* STEP 3 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 3 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                        Step 3 &bull; Fix Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(3)}
+                        disabled={handoffStepExecuting === 3 || handoffLoading}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 3 ? 'Running...' : '▶ Run Step 3'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">Remote Troubleshooting (Reboot)</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Fix dispatches over-the-air reboot packet. Re-checks telemetry: still OFFLINE (never assumes success).
+                    </p>
+                  </div>
+
+                  {/* STEP 4 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 4 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                        Step 4 &bull; Fix Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(4)}
+                        disabled={handoffStepExecuting === 4 || handoffLoading}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 4 ? 'Running...' : '▶ Run Step 4'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">Technician Visit Booked</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Fix reserves tomorrow 10am-12pm slot. Creates Task (bucket: NEEDS_HUMAN). Passes to Field Beat.
+                    </p>
+                  </div>
+
+                  {/* STEP 5 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 5 ? 'border-emerald-300 bg-emerald-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                        Step 5 &bull; FieldMate Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(5)}
+                        disabled={handoffStepExecuting === 5 || handoffLoading}
+                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 5 ? 'Running...' : '▶ Run Step 5'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">Route & Combined Sales Brief</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      FieldMate updates Amit Verma's route (Stop #1). Brief combines Soundbox repair + ₹50,000 Merchant Loan pitch.
+                    </p>
+                  </div>
+
+                  {/* STEP 6 */}
+                  <div className={`p-4 rounded-xl border transition ${
+                    handoffStatus?.current_step >= 6 ? 'border-purple-300 bg-purple-50/40' : 'border-gray-200 bg-white'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-800">
+                        Step 6 &bull; Revive Agent
+                      </span>
+                      <button
+                        onClick={() => handleExecuteHandoffStep(6)}
+                        disabled={handoffStepExecuting === 6 || handoffLoading}
+                        className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-bold rounded shadow-xs disabled:opacity-50"
+                      >
+                        {handoffStepExecuting === 6 ? 'Running...' : '▶ Run Step 6'}
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-xs text-gray-900">On-Site Fix & Verified Recovery</h4>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Rep replaces adapter (Soundbox ONLINE, 95%). Revive re-checks volume &rarr; recovered to ₹17,500/day (RECOVERING).
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real Audit Trail Timeline: Pulling straight from audit_events */}
+              <div className="bg-white rounded-card p-5 border border-[#E5E7EB] shadow-soft">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+                  <div>
+                    <h3 className="font-bold text-base text-gray-900">Handoff Audit Trail Timeline</h3>
+                    <p className="text-xs text-gray-500">Live authoritative stream sourced directly from <code className="text-[#002E6E] font-semibold">audit_events</code></p>
+                  </div>
+                  <button
+                    onClick={fetchHandoffData}
+                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition"
+                    title="Refresh timeline"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {handoffTimeline.length === 0 ? (
+                    <p className="text-center py-8 text-gray-400 text-xs">No handoff audit records yet. Click "⚡ Run Full 6-Step Chain" above to start.</p>
+                  ) : (
+                    handoffTimeline.map((ev) => {
+                      const isRevive = ev.actor.includes('revive') || ev.action.includes('REVIVE');
+                      const isFix = ev.actor.includes('fix') || ev.action.includes('FIX') || ev.action.includes('TECHNICIAN');
+                      const isFieldMate = ev.actor.includes('fieldmate') || ev.action.includes('FIELDMATE');
+                      const isRouter = ev.actor.includes('saathi_brain') || ev.action.includes('Saathi routed to');
+
+                      const badgeBg = isRevive
+                        ? 'bg-purple-100 text-purple-800'
+                        : isFix
+                        ? 'bg-blue-100 text-blue-800'
+                        : isFieldMate
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-gray-100 text-gray-800';
+
+                      return (
+                        <div
+                          key={ev.id}
+                          className="p-3.5 bg-gray-50/70 hover:bg-white rounded-xl border border-gray-200 hover:border-[#00BAF2] shadow-xs transition space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badgeBg}`}>
+                                {ev.actor}
+                              </span>
+                              <span className="text-xs font-bold text-[#002E6E]">{ev.action}</span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                ev.result.includes('CONFIRMED') || ev.result.includes('SUCCESS')
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : ev.result.includes('FAILED') || ev.result.includes('OFFLINE')
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}
+                            >
+                              {ev.result}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-gray-700">
+                            Target: <span className="font-mono text-gray-900 font-semibold">{ev.target}</span>
+                          </p>
+
+                          <div className="flex items-center justify-between text-[10px] text-gray-400 pt-1 border-t border-gray-100">
+                            <span>Policy: {ev.policy_decision_id || 'dec_auto'} &bull; Key: {ev.idempotency_key || 'none'}</span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {ev.created_at ? new Date(ev.created_at).toLocaleTimeString() : 'Just now'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>

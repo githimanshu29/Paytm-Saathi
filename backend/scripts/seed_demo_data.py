@@ -1022,6 +1022,26 @@ def seed_demo_data():
             )
         )
 
+        # (1b) Singh Automobiles: Volume drop caused by OFFLINE device (Primary candidate for Handoff Demo)
+        db.add(
+            MerchantActivityMetric(
+                id="metric_singh_dormancy",
+                tenant_id=tenant.id,
+                merchant_id="mer_singh_automobiles",
+                baseline_daily_tx_count=45,
+                baseline_daily_volume_paise=1800000,  # ₹18,000.00
+                recent_daily_tx_count=6,
+                recent_daily_volume_paise=240000,    # ₹2,400.00
+                drop_percentage=86,
+                health_status="AT_RISK",
+                diagnosed_cause="DEVICE_ISSUE",
+                revival_stage="AT_RISK",
+                last_scanned_at=now,
+                is_synthetic=True,
+                environment="DEMO",
+            )
+        )
+
         # (2) Verma Sweets: Volume drop caused by UNRESOLVED settlement discrepancy
         db.add(
             MerchantActivityMetric(

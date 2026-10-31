@@ -14,6 +14,7 @@ from app.api.revive import revive_router
 from app.api.onboard import onboard_router
 from app.api.fieldmate import fieldmate_router
 from app.api.vasooli import vasooli_router, demo_vasooli_router, employee_vasooli_router
+from app.api.handoff import router as handoff_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -25,6 +26,7 @@ api_router.include_router(fieldmate_router)
 api_router.include_router(vasooli_router)
 api_router.include_router(demo_vasooli_router)
 api_router.include_router(employee_vasooli_router)
+api_router.include_router(handoff_router)
 
 @api_router.get("/health", response_model=HealthResponse)
 def health_check(db: Session = Depends(get_db)):

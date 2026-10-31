@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.db.session import SessionLocal
-from app.db.models import Merchant, MerchantVisit, AuditEvent
+from app.db.models import Merchant, MerchantVisit, AuditEvent, Device
 from app.adapters.fieldmate import (
     MockFieldMateAdapter,
     ConcurrencyConflictError,
@@ -53,6 +53,14 @@ def reset_test_visits(db: Session):
             v.lead_interest = None
             v.visit_status = "SCHEDULED"
             v.version = 1
+
+    # Ensure Singh Automobiles device is in offline baseline state
+    dev = db.query(Device).filter_by(id="dev_soundbox_505").first()
+    if dev:
+        dev.status = "OFFLINE"
+        dev.battery_level = 12
+        dev.technician_visit_booked = False
+
     db.commit()
     yield
 

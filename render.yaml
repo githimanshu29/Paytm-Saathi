@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: paytm-saathi-backend
+    env: python
+    rootDir: backend
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python scripts/seed_demo_data.py"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: DEMO
+      - key: PROJECT_NAME
+        value: "Paytm Saathi Backend"
+      - key: DATABASE_URL
+        value: "sqlite:///./paytm_saathi.db"
+      - key: JWT_SECRET
+        value: "paytm-saathi-super-secret-demo-key-2026-phase1"
+      - key: DEMO_OTP
+        value: "123456"
+      - key: GEMINI_MODEL
+        value: "gemini-2.5-flash"
+      - key: GEMINI_FALLBACK_MODEL
+        value: "gemini-3.8-flash"
+      - key: GEMINI_API_KEY
+        sync: false

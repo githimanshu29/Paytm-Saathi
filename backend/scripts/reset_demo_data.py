@@ -23,6 +23,7 @@ from app.db.models import (
     MerchantFollowup,
     MerchantActivityMetric,
     MerchantDocument,
+    MerchantVisit,
 )
 from scripts.seed_demo_data import seed_demo_data
 
@@ -34,6 +35,7 @@ def reset_demo_data():
         db.query(AuditEvent).delete()
         db.query(ActionApproval).delete()
         db.query(Task).delete()
+        db.query(MerchantVisit).delete()
         db.query(ScheduledJob).delete()
         db.query(MerchantDocument).delete()
         db.query(MerchantFollowup).delete()

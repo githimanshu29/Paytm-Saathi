@@ -6,6 +6,7 @@ from app.agents.fix import FixAgent
 from app.agents.reconcile import ReconcileAgent
 from app.agents.revive import ReviveAgent
 from app.agents.onboard import OnboardAgent
+from app.agents.fieldmate import FieldMateAgent
 from app.adapters.speech import MockSpeechAdapter
 from app.policy.audit import audit_log
 
@@ -27,6 +28,7 @@ class SaathiBrainOrchestrator:
         self.reconcile_agent = ReconcileAgent(db)
         self.revive_agent = ReviveAgent(db)
         self.onboard_agent = OnboardAgent(db)
+        self.fieldmate_agent = FieldMateAgent(db)
         self.speech_adapter = MockSpeechAdapter()
 
     def route_and_run(
@@ -165,7 +167,43 @@ class SaathiBrainOrchestrator:
         ]
         is_onboard_intent = any(k in query_clean for k in onboard_keywords)
 
+        # 6. Sales Rep / FieldMate Keywords -> FieldMate Agent
+        fieldmate_keywords = [
+            "fieldmate",
+            "sales rep",
+            "sales route",
+            "visit route",
+            "my route",
+            "merchant brief",
+            "sales copilot",
+            "visit plan",
+            "lead pitch",
+        ]
+        is_fieldmate_intent = any(k in query_clean for k in fieldmate_keywords)
+
         # Priority routing
+        # Priority 0: FieldMate / Sales Rep intent
+        if is_fieldmate_intent:
+            fm_res = self.fieldmate_agent.run(
+                query_type="GET_ROUTE",
+                sales_rep_id=actor_id if actor_id.startswith("emp_") else "emp_sales_01",
+                merchant_id=merchant_id,
+            )
+            speech_res = self.speech_adapter.synthesize(fm_res["agent_reply"], language="en-IN")
+            return {
+                "agent": "FIELDMATE",
+                "reply": fm_res["agent_reply"],
+                "chip_status": fm_res["chip_status"],
+                "branch": fm_res.get("action_taken"),
+                "route_items": fm_res.get("route_items"),
+                "brief_detail": fm_res.get("brief_detail"),
+                "action_card": None,
+                "breakdown_card": None,
+                "approval_card": None,
+                "speech_audio_base64": speech_res.audio_base64,
+                "speech_duration_seconds": speech_res.duration_seconds,
+            }
+
         # Priority A: Onboard / KYC intent (includes credential security gate)
         if is_onboard_intent:
             onb_res = self.onboard_agent.run(

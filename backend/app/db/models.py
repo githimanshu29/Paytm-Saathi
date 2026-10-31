@@ -66,6 +66,12 @@ class Merchant(Base):
     onboarding_status = Column(String(50), default="COMPLETED", nullable=False)
     kyc_status = Column(String(50), default="VERIFIED", nullable=False)
     
+    # FieldMate Sales Rep Assignment & Location (Phase 9)
+    assigned_sales_rep_id = Column(String(64), ForeignKey("employees.id"), nullable=True)
+    latitude = Column(Float, default=26.9124, nullable=True)
+    longitude = Column(Float, default=75.7873, nullable=True)
+    lead_status = Column(String(50), default="NONE", nullable=True)
+
     # Safety and synthetic governance
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)
@@ -85,6 +91,7 @@ class Merchant(Base):
     activity_metrics = relationship("MerchantActivityMetric", back_populates="merchant")
     followups = relationship("MerchantFollowup", back_populates="merchant")
     documents = relationship("MerchantDocument", back_populates="merchant", cascade="all, delete-orphan")
+    visits = relationship("MerchantVisit", back_populates="merchant", cascade="all, delete-orphan")
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -435,3 +442,40 @@ class MerchantDocument(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     merchant = relationship("Merchant", back_populates="documents")
+
+
+class MerchantVisit(Base):
+    __tablename__ = "merchant_visits"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    sales_rep_id = Column(String(64), ForeignKey("employees.id"), nullable=False)
+
+    visit_status = Column(String(50), default="SCHEDULED", nullable=False)  # SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
+    planned_order = Column(Integer, default=1, nullable=False)
+    priority = Column(String(50), default="MEDIUM", nullable=False)  # HIGH | MEDIUM | LOW
+    distance_km = Column(Float, default=1.0, nullable=False)
+    evidence_backed_brief = Column(String(255), nullable=False)
+    brief_cause_type = Column(String(50), default="GENERAL_CHECKIN", nullable=False)
+
+    # Voice Note Flow (Explicitly UNCONFIRMED until rep reviews)
+    raw_audio_base64 = Column(Text, nullable=True)
+    raw_transcript = Column(Text, nullable=True)
+    extracted_candidate_fields = Column(Text, nullable=True)  # JSON string of unconfirmed fields
+    confirmed_notes = Column(Text, nullable=True)
+    lead_interest = Column(String(100), nullable=True)
+
+    is_confirmed_by_rep = Column(Boolean, default=False, nullable=False)
+    confirmed_at = Column(DateTime, nullable=True)
+
+    # Optimistic locking for concurrency control (prevent silent overwrites)
+    version = Column(Integer, default=1, nullable=False)
+
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="visits")
+    sales_rep = relationship("Employee", foreign_keys=[sales_rep_id])

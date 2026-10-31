@@ -41,6 +41,17 @@ from app.adapters.onboard import (
     OCRResultRecord,
     VerificationSubmissionRecord,
 )
+from app.adapters.fieldmate import (
+    IFieldMateAdapter,
+    MockFieldMateAdapter,
+    MerchantRouteItem,
+    MerchantBriefDetail,
+    VoiceNoteCandidateDraft,
+    ConfirmedVisitNoteResult,
+    ManagerRepSummary,
+    ConcurrencyConflictError,
+    RepPolicyViolationError,
+)
 
 __all__ = [
     "ITransactionAdapter",
@@ -74,4 +85,13 @@ __all__ = [
     "OnboardingChecklistRecord",
     "OCRResultRecord",
     "VerificationSubmissionRecord",
+    "IFieldMateAdapter",
+    "MockFieldMateAdapter",
+    "MerchantRouteItem",
+    "MerchantBriefDetail",
+    "VoiceNoteCandidateDraft",
+    "ConfirmedVisitNoteResult",
+    "ManagerRepSummary",
+    "ConcurrencyConflictError",
+    "RepPolicyViolationError",
 ]

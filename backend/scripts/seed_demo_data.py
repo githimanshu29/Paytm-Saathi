@@ -25,6 +25,7 @@ from app.db.models import (
     MerchantActivityMetric,
     MerchantFollowup,
     MerchantDocument,
+    MerchantVisit,
 )
 from app.core.security import hash_password
 
@@ -81,6 +82,10 @@ def seed_demo_data():
                 status="ACTIVE",
                 onboarding_status="COMPLETED",
                 kyc_status="VERIFIED",
+                assigned_sales_rep_id="emp_sales_01",
+                latitude=26.9196,
+                longitude=75.8242,
+                lead_status="PROSPECT",
                 is_synthetic=True,
                 environment="DEMO",
             )
@@ -665,10 +670,14 @@ def seed_demo_data():
                 store_name="Gupta Electronics",
                 merchant_name="Neha Gupta",
                 phone="+919823456789",
-                city="Delhi",
+                city="Jaipur",
                 status="PENDING",
                 onboarding_status="PENDING_DOCUMENTATION",
                 kyc_status="DOCUMENTS_REQUIRED",
+                assigned_sales_rep_id="emp_sales_01",
+                latitude=26.8920,
+                longitude=75.8260,
+                lead_status="CONTACTED",
                 is_synthetic=True,
                 environment="DEMO",
             )
@@ -916,7 +925,7 @@ def seed_demo_data():
         # -------------------------------------------------------------
         # Phase 8: Seeded KYC Applications & Incomplete Onboardings
         # -------------------------------------------------------------
-        # Merchant 5: Rajesh Singh (Jaipur) - Missing Bank Proof
+        # Merchant 5: Rajesh Singh (Jaipur) - Missing Bank Proof & Offline Soundbox
         m5 = db.query(Merchant).filter_by(id="mer_singh_automobiles").first()
         if not m5:
             m5 = Merchant(
@@ -929,13 +938,38 @@ def seed_demo_data():
                 status="PENDING",
                 onboarding_status="PENDING_DOCUMENTATION",
                 kyc_status="DOCUMENTS_REQUIRED",
+                assigned_sales_rep_id="emp_sales_01",
+                latitude=26.9055,
+                longitude=75.8450,
+                lead_status="PROSPECT",
                 is_synthetic=True,
                 environment="DEMO",
             )
             db.add(m5)
             db.flush()
 
-        # Merchant 6: Priya Sharma (Lucknow) - Missing Shop Photo
+            # Offline Soundbox for Singh Automobiles (3 days offline)
+            db.add(
+                Device(
+                    id="dev_soundbox_505",
+                    tenant_id=tenant.id,
+                    merchant_id=m5.id,
+                    device_type="Soundbox 4G Pro",
+                    serial_number="SB-JAI-505",
+                    sim_number="8991001122334455",
+                    battery_level=12,
+                    status="OFFLINE",
+                    last_heartbeat=now - timedelta(days=3),
+                    signal_strength_dbm=-105,
+                    firmware_version="v3.4.1",
+                    reboot_in_progress=False,
+                    technician_visit_booked=False,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
+        # Merchant 6: Priya Sharma (Jaipur) - Missing Shop Photo & Dormant Volume Drop
         m6 = db.query(Merchant).filter_by(id="mer_shree_radhe_bakery").first()
         if not m6:
             m6 = Merchant(
@@ -944,17 +978,21 @@ def seed_demo_data():
                 store_name="Radhe Krishna Bakery",
                 merchant_name="Priya Sharma",
                 phone="+919822334455",
-                city="Lucknow",
+                city="Jaipur",
                 status="PENDING",
                 onboarding_status="PENDING_DOCUMENTATION",
                 kyc_status="DOCUMENTS_REQUIRED",
+                assigned_sales_rep_id="emp_sales_01",
+                latitude=26.9110,
+                longitude=75.8010,
+                lead_status="INTERESTED",
                 is_synthetic=True,
                 environment="DEMO",
             )
             db.add(m6)
             db.flush()
 
-        # Merchant 7: Sunil Verma (Mumbai) - Full-pass applicant ready for authorized verification
+        # Merchant 7: Sunil Verma (Jaipur) - Full-pass applicant ready for authorized verification
         m7 = db.query(Merchant).filter_by(id="mer_apex_retail").first()
         if not m7:
             m7 = Merchant(
@@ -963,10 +1001,14 @@ def seed_demo_data():
                 store_name="Apex Fresh Mart",
                 merchant_name="Sunil Verma",
                 phone="+919833445566",
-                city="Mumbai",
+                city="Jaipur",
                 status="PENDING",
                 onboarding_status="UNDER_REVIEW",
                 kyc_status="IN_VERIFICATION",
+                assigned_sales_rep_id="emp_sales_01",
+                latitude=26.9080,
+                longitude=75.7420,
+                lead_status="PROSPECT",
                 is_synthetic=True,
                 environment="DEMO",
             )
@@ -1243,6 +1285,104 @@ def seed_demo_data():
         ]
         for d in docs_apex:
             db.add(d)
+
+        # -------------------------------------------------------------
+        # Phase 9: Seeded Field Sales Rep Visits (FieldMate)
+        # -------------------------------------------------------------
+        visits_data = [
+            MerchantVisit(
+                id="visit_jai_001_singh",
+                tenant_id=tenant.id,
+                merchant_id="mer_singh_automobiles",
+                sales_rep_id="emp_sales_01",
+                visit_status="SCHEDULED",
+                planned_order=1,
+                priority="HIGH",
+                distance_km=3.3,
+                evidence_backed_brief="Soundbox offline 3 days & bank proof missing — replace battery/adapter, collect physical cheque",
+                brief_cause_type="HARDWARE_AND_KYC",
+                is_confirmed_by_rep=False,
+                version=1,
+                is_synthetic=True,
+                environment="DEMO",
+                created_at=now - timedelta(hours=4),
+            ),
+            MerchantVisit(
+                id="visit_jai_002_gupta",
+                tenant_id=tenant.id,
+                merchant_id="mer_gupta_electronics",
+                sales_rep_id="emp_sales_01",
+                visit_status="SCHEDULED",
+                planned_order=2,
+                priority="HIGH",
+                distance_km=2.8,
+                evidence_backed_brief="PAN photo is blurry (confidence 45%) — collect physical PAN card copy for verification",
+                brief_cause_type="KYC_ISSUE",
+                is_confirmed_by_rep=False,
+                version=1,
+                is_synthetic=True,
+                environment="DEMO",
+                created_at=now - timedelta(hours=4),
+            ),
+            MerchantVisit(
+                id="visit_jai_003_radhe",
+                tenant_id=tenant.id,
+                merchant_id="mer_shree_radhe_bakery",
+                sales_rep_id="emp_sales_01",
+                visit_status="SCHEDULED",
+                planned_order=3,
+                priority="MEDIUM",
+                distance_km=1.5,
+                evidence_backed_brief="Shop photo missing & sales dropped 70% — verify signboard, pitch Kirana Booster offer",
+                brief_cause_type="DORMANCY_AND_KYC",
+                is_confirmed_by_rep=False,
+                version=1,
+                is_synthetic=True,
+                environment="DEMO",
+                created_at=now - timedelta(hours=4),
+            ),
+            MerchantVisit(
+                id="visit_jai_004_apex",
+                tenant_id=tenant.id,
+                merchant_id="mer_apex_retail",
+                sales_rep_id="emp_sales_01",
+                visit_status="SCHEDULED",
+                planned_order=4,
+                priority="LOW",
+                distance_km=7.4,
+                evidence_backed_brief="All KYC docs passed OCR — perform physical store check to complete activation",
+                brief_cause_type="PHYSICAL_VERIFICATION",
+                is_confirmed_by_rep=False,
+                version=1,
+                is_synthetic=True,
+                environment="DEMO",
+                created_at=now - timedelta(hours=4),
+            ),
+            MerchantVisit(
+                id="visit_jai_005_sharma",
+                tenant_id=tenant.id,
+                merchant_id="mer_sharma_kirana",
+                sales_rep_id="emp_sales_01",
+                visit_status="COMPLETED",
+                planned_order=5,
+                priority="MEDIUM",
+                distance_km=1.1,
+                evidence_backed_brief="Daily volume up 40% — pitch Merchant Loan & Soundbox Pro upgrade",
+                brief_cause_type="UPSELL_LOAN",
+                raw_transcript="Namaste, visited Ramesh ji at Sharma Kirana. Store volume is strong. Discussed ₹50,000 Merchant Growth Loan at 1.2% monthly. Ramesh ji is keen to expand dairy inventory and requested follow-up next Tuesday morning.",
+                extracted_candidate_fields='{"merchant_sentiment": "POSITIVE", "product_discussed": "MERCHANT_LOAN", "proposed_amount": 50000, "follow_up_scheduled": "2026-11-03", "rep_action": "PITCH_LOAN"}',
+                confirmed_notes="Met Ramesh ji in person. Explained ₹50,000 Merchant Growth Loan at 1.2% monthly interest. Merchant is very interested and asked to follow up next Tuesday morning.",
+                lead_interest="INTERESTED_MERCHANT_LOAN",
+                is_confirmed_by_rep=True,
+                confirmed_at=now - timedelta(hours=2),
+                version=2,
+                is_synthetic=True,
+                environment="DEMO",
+                created_at=now - timedelta(hours=5),
+            ),
+        ]
+        for v in visits_data:
+            db.add(v)
 
         # Initial audit log
         audit_event = AuditEvent(

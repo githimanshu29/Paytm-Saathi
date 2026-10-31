@@ -12,6 +12,7 @@ from app.api.merchant import merchant_router
 from app.api.employee import employee_router
 from app.api.revive import revive_router
 from app.api.onboard import onboard_router
+from app.api.fieldmate import fieldmate_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -19,6 +20,7 @@ api_router.include_router(merchant_router)
 api_router.include_router(employee_router)
 api_router.include_router(revive_router)
 api_router.include_router(onboard_router)
+api_router.include_router(fieldmate_router)
 
 @api_router.get("/health", response_model=HealthResponse)
 def health_check(db: Session = Depends(get_db)):

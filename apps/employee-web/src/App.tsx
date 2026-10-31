@@ -33,6 +33,13 @@ import {
   CheckCircle,
   Sparkles,
   Phone,
+  Mic,
+  Navigation,
+  FileText,
+  AlertCircle,
+  Calendar,
+  Award,
+  Check,
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -179,6 +186,90 @@ interface OnboardingPipelineResponse {
   applications: OnboardingApplicationItem[];
 }
 
+interface MerchantRouteItem {
+  visit_id: string;
+  merchant_id: string;
+  store_name: string;
+  merchant_name: string;
+  phone: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  distance_km: number;
+  priority: string;
+  planned_order: number;
+  visit_status: string;
+  evidence_backed_brief: string;
+  brief_cause_type: string;
+  lead_status: string;
+  is_confirmed_by_rep: boolean;
+  version: number;
+}
+
+interface RouteResponse {
+  sales_rep_id: string;
+  rep_lat: number;
+  rep_lon: number;
+  count: number;
+  disclaimer: string;
+  merchants: MerchantRouteItem[];
+}
+
+interface MerchantBriefDetail {
+  merchant_id: string;
+  store_name: string;
+  merchant_name: string;
+  phone: string;
+  city: string;
+  distance_km: number;
+  priority: string;
+  one_line_brief: string;
+  brief_cause_type: string;
+  evidence_breakdown: {
+    device: { exists: boolean; status?: string; battery?: number };
+    kyc: { onboarding_status: string; missing_docs: string[]; blurry_docs: string[]; all_passed: boolean };
+    activity: { drop_percentage: number; health_status: string };
+    settlements: { disputed: boolean; last_discrepancy: number };
+  };
+  talking_points: string[];
+  recommended_pitch: string;
+  visit_id?: string;
+  version: number;
+}
+
+interface VoiceCandidateDraft {
+  visit_id: string;
+  merchant_id: string;
+  raw_transcript: string;
+  extracted_candidate_fields: Record<string, any>;
+  proposed_lead_interest?: string;
+  requires_rep_confirmation: boolean;
+  disclaimer: string;
+  version: number;
+}
+
+interface ConfirmedVisitSummaryItem {
+  visit_id: string;
+  merchant_id: string;
+  store_name: string;
+  merchant_name: string;
+  confirmed_notes?: string;
+  lead_interest?: string;
+  confirmed_at?: string;
+  version: number;
+}
+
+interface ManagerRepSummaryData {
+  sales_rep_id: string;
+  rep_name: string;
+  total_assigned_merchants: number;
+  planned_visits_today: number;
+  completed_visits_today: number;
+  completion_rate_pct: number;
+  leads_generated_today: number;
+  confirmed_visits: ConfirmedVisitSummaryItem[];
+}
+
 export function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('saathi_employee_token'));
   const [user, setUser] = useState<EmployeeUser | null>(() => {
@@ -218,6 +309,24 @@ export function App() {
   const [selectedApplication, setSelectedApplication] = useState<OnboardingApplicationItem | null>(null);
   const [verifyingMerchantId, setVerifyingMerchantId] = useState<string | null>(null);
   const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
+
+  // FieldMate Sales Copilot State
+  const [fieldRoute, setFieldRoute] = useState<MerchantRouteItem[]>([]);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [selectedBrief, setSelectedBrief] = useState<MerchantBriefDetail | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [voiceModalVisit, setVoiceModalVisit] = useState<MerchantRouteItem | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [extractingVoice, setExtractingVoice] = useState(false);
+  const [extractedDraft, setExtractedDraft] = useState<VoiceCandidateDraft | null>(null);
+  const [confirmedNotesInput, setConfirmedNotesInput] = useState('');
+  const [leadInterestInput, setLeadInterestInput] = useState<string>('INTERESTED_MERCHANT_LOAN');
+  const [savingConfirm, setSavingConfirm] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [confirmSuccessMsg, setConfirmSuccessMsg] = useState<string | null>(null);
+  const [managerSummary, setManagerSummary] = useState<ManagerRepSummaryData | null>(null);
+  const [managerSummaryLoading, setManagerSummaryLoading] = useState(false);
+  const [fieldViewMode, setFieldViewMode] = useState<'rep' | 'manager'>('rep');
 
   // Navigation tab state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -344,6 +453,155 @@ export function App() {
     }
   };
 
+  // FieldMate Callbacks
+  const fetchFieldRoute = useCallback(async () => {
+    if (!token) return;
+    setRouteLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/employee/fieldmate/route`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data: RouteResponse = await res.json();
+        setFieldRoute(data.merchants || []);
+      }
+    } catch (_e) {
+    } finally {
+      setRouteLoading(false);
+    }
+  }, [token]);
+
+  const fetchManagerSummary = useCallback(async () => {
+    if (!token) return;
+    setManagerSummaryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/employee/fieldmate/manager-summary?sales_rep_id=emp_sales_01`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data: ManagerRepSummaryData = await res.json();
+        setManagerSummary(data);
+      }
+    } catch (_e) {
+    } finally {
+      setManagerSummaryLoading(false);
+    }
+  }, [token]);
+
+  const openBriefModal = async (merchantId: string) => {
+    if (!token) return;
+    setBriefLoading(true);
+    setSelectedBrief(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/employee/fieldmate/brief/${merchantId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data: MerchantBriefDetail = await res.json();
+        setSelectedBrief(data);
+      }
+    } catch (_e) {
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+
+  const openVoiceModal = (visit: MerchantRouteItem) => {
+    setVoiceModalVisit(visit);
+    setVoiceTranscript('');
+    setExtractedDraft(null);
+    setConfirmedNotesInput('');
+    setLeadInterestInput('INTERESTED_MERCHANT_LOAN');
+    setConflictError(null);
+    setConfirmSuccessMsg(null);
+  };
+
+  const handleExtractVoiceNote = async () => {
+    if (!token || !voiceModalVisit || !voiceTranscript.trim()) return;
+    setExtractingVoice(true);
+    setConflictError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/employee/fieldmate/voice-note/extract`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          visit_id: voiceModalVisit.visit_id,
+          raw_transcript: voiceTranscript,
+        }),
+      });
+      if (res.ok) {
+        const data: VoiceCandidateDraft = await res.json();
+        setExtractedDraft(data);
+        setConfirmedNotesInput(voiceTranscript);
+        if (data.proposed_lead_interest) {
+          setLeadInterestInput(data.proposed_lead_interest);
+        }
+      } else {
+        const err = await res.json();
+        setConflictError(err.detail || 'Failed to extract draft note.');
+      }
+    } catch (_e) {
+      setConflictError('Failed to communicate with extraction service.');
+    } finally {
+      setExtractingVoice(false);
+    }
+  };
+
+  const handleConfirmVoiceNote = async () => {
+    if (!token || !voiceModalVisit) return;
+    setSavingConfirm(true);
+    setConflictError(null);
+    setConfirmSuccessMsg(null);
+
+    const expectedVersion = extractedDraft ? extractedDraft.version : voiceModalVisit.version;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/employee/fieldmate/voice-note/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          visit_id: voiceModalVisit.visit_id,
+          expected_version: expectedVersion,
+          confirmed_notes: confirmedNotesInput.trim() || voiceTranscript,
+          lead_interest: leadInterestInput,
+        }),
+      });
+
+      if (res.status === 409) {
+        const err = await res.json();
+        setConflictError(`Concurrency Conflict: ${err.detail || 'Record modified by another session. Refresh and retry.'}`);
+        fetchFieldRoute();
+        return;
+      }
+
+      if (!res.ok) {
+        const err = await res.json();
+        setConflictError(err.detail || 'Failed to confirm note.');
+        return;
+      }
+
+      const confirmedData = await res.json();
+      setConfirmSuccessMsg(`Visit note confirmed & persisted (v${confirmedData.new_version}).`);
+      fetchFieldRoute();
+      fetchManagerSummary();
+      setTimeout(() => {
+        setVoiceModalVisit(null);
+        setExtractedDraft(null);
+        setConfirmSuccessMsg(null);
+      }, 1500);
+    } catch (_e) {
+      setConflictError('Network error while committing confirmed note.');
+    } finally {
+      setSavingConfirm(false);
+    }
+  };
+
   // Initial and Polling fetch
   useEffect(() => {
     if (!token) return;
@@ -377,6 +635,14 @@ export function App() {
       fetchPipeline();
     }
   }, [token, activeTab, fetchPipeline]);
+
+  // Fetch route and manager summary when switching to fieldmate tab
+  useEffect(() => {
+    if (token && activeTab === 'fieldmate') {
+      fetchFieldRoute();
+      fetchManagerSummary();
+    }
+  }, [token, activeTab, fetchFieldRoute, fetchManagerSummary]);
 
   // Fetch timeline when a case is selected for slide-over
   useEffect(() => {
@@ -1511,6 +1777,604 @@ export function App() {
                           Execute Simulated Authorized Verification
                         </button>
                       )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'fieldmate' ? (
+            /* FIELDMATE SALES COPILOT WORKSPACE */
+            <div className="space-y-6">
+              {/* 1. Header Banner & Persona Switcher */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700">
+                      <MapPin className="w-5 h-5 text-emerald-600" />
+                    </span>
+                    <h2 className="text-2xl font-bold text-[#1A1A1A]">FieldMate: Field Sales Copilot</h2>
+                  </div>
+                  <p className="text-sm text-[#6B7280] mt-1">
+                    Route heuristics · Evidence-backed briefs · Optimistic concurrency control · Mandatory rep confirmation gate
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  {/* Persona View Switcher */}
+                  <div className="bg-white border border-[#E5E7EB] p-1 rounded-xl shadow-xs flex items-center space-x-1 text-xs font-semibold">
+                    <button
+                      onClick={() => setFieldViewMode('rep')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${
+                        fieldViewMode === 'rep'
+                          ? 'bg-[#002E6E] text-white shadow-xs'
+                          : 'text-[#6B7280] hover:text-[#1A1A1A]'
+                      }`}
+                    >
+                      🚗 Field Rep Console (Amit V.)
+                    </button>
+                    <button
+                      onClick={() => setFieldViewMode('manager')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${
+                        fieldViewMode === 'manager'
+                          ? 'bg-[#002E6E] text-white shadow-xs'
+                          : 'text-[#6B7280] hover:text-[#1A1A1A]'
+                      }`}
+                    >
+                      📊 Manager EOD Summary (Pooja M.)
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      fetchFieldRoute();
+                      fetchManagerSummary();
+                    }}
+                    disabled={routeLoading || managerSummaryLoading}
+                    className="px-3.5 py-2 bg-white border border-[#E5E7EB] hover:border-[#00BAF2] text-xs font-semibold text-[#1A1A1A] rounded-lg shadow-sm flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${routeLoading ? 'animate-spin text-[#00BAF2]' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Territory & Hub Banner */}
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs font-semibold text-[#002E6E] flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+                <div className="flex items-center space-x-2">
+                  <Navigation className="w-4 h-4 text-[#00BAF2] flex-shrink-0" />
+                  <span>
+                    Starting Hub: <strong>MI Road, Jaipur Central (26.9150° N, 75.8150° E)</strong> · Territory: Jaipur Metro Central
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-[11px] text-[#6B7280]">
+                  <span className="px-2 py-0.5 bg-white border border-blue-200 rounded-full text-blue-900 font-medium">
+                    Heuristic Priority Route (Urgency + Distance)
+                  </span>
+                </div>
+              </div>
+
+              {/* VIEW 1: FIELD SALES REP ROUTE CONSOLE */}
+              {fieldViewMode === 'rep' ? (
+                <div className="space-y-6">
+                  {/* Route Quick Stats */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-card p-4 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Assigned Territory</p>
+                      <p className="text-2xl font-extrabold text-[#002E6E] mt-1">{fieldRoute.length || 5}</p>
+                      <p className="text-[11px] text-[#00BAF2] mt-0.5">Jaipur Central Merchants</p>
+                    </div>
+                    <div className="bg-white rounded-card p-4 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Scheduled Stops</p>
+                      <p className="text-2xl font-extrabold text-amber-600 mt-1">
+                        {fieldRoute.filter((r) => r.visit_status === 'SCHEDULED').length}
+                      </p>
+                      <p className="text-[11px] text-amber-700 mt-0.5">Pending Rep Visit Today</p>
+                    </div>
+                    <div className="bg-white rounded-card p-4 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Completed & Confirmed</p>
+                      <p className="text-2xl font-extrabold text-emerald-600 mt-1">
+                        {fieldRoute.filter((r) => r.is_confirmed_by_rep).length}
+                      </p>
+                      <p className="text-[11px] text-emerald-700 mt-0.5">Persisted to CRM</p>
+                    </div>
+                    <div className="bg-white rounded-card p-4 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Next Recommended Stop</p>
+                      <p className="text-sm font-bold text-[#1A1A1A] mt-1 truncate">
+                        {fieldRoute.find((r) => r.visit_status === 'SCHEDULED')?.store_name || 'All visits complete!'}
+                      </p>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">
+                        {fieldRoute.find((r) => r.visit_status === 'SCHEDULED')?.distance_km} km away
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Prioritized Route Stops List */}
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-base text-[#1A1A1A] flex items-center justify-between">
+                      <span>Prioritized Merchant Stops (Urgency & Proximity Ordered)</span>
+                      <span className="text-xs font-normal text-[#6B7280]">
+                        Click "View Brief" for real telemetry facts · "Log Visit" to record voice note
+                      </span>
+                    </h3>
+
+                    {routeLoading && (
+                      <div className="p-12 text-center text-sm text-gray-500 bg-white rounded-card border">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#00BAF2]" />
+                        Loading prioritized territory route...
+                      </div>
+                    )}
+
+                    {!routeLoading && fieldRoute.length === 0 && (
+                      <div className="p-12 text-center text-sm text-gray-500 bg-white rounded-card border">
+                        No assigned merchants found for this sales representative.
+                      </div>
+                    )}
+
+                    {!routeLoading &&
+                      fieldRoute.map((item) => {
+                        const isCompleted = item.is_confirmed_by_rep || item.visit_status === 'COMPLETED';
+                        return (
+                          <div
+                            key={item.visit_id}
+                            className={`bg-white rounded-card p-5 shadow-soft border transition-all ${
+                              isCompleted
+                                ? 'border-emerald-200 bg-emerald-50/20'
+                                : item.priority === 'HIGH'
+                                ? 'border-amber-300 hover:border-[#00BAF2]'
+                                : 'border-[#E5E7EB] hover:border-[#00BAF2]'
+                            }`}
+                          >
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              {/* Left: Order badge, Merchant info & Truthful brief */}
+                              <div className="space-y-2 flex-1">
+                                <div className="flex items-center space-x-2">
+                                  <span className="w-6 h-6 rounded-full bg-[#002E6E] text-white flex items-center justify-center font-extrabold text-xs">
+                                    {item.planned_order}
+                                  </span>
+                                  <h4 className="font-bold text-base text-[#002E6E]">{item.store_name}</h4>
+                                  <StatusChip
+                                    status={
+                                      item.priority === 'HIGH'
+                                        ? 'needs_human'
+                                        : item.priority === 'MEDIUM'
+                                        ? 'awaiting_approval'
+                                        : 'verified'
+                                    }
+                                    size="sm"
+                                    label={`${item.priority} PRIORITY`}
+                                  />
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-gray-100 text-gray-600 border border-gray-200">
+                                    v{item.version}
+                                  </span>
+                                  {isCompleted && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      ✓ COMPLETED
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-[#6B7280]">
+                                  <span>👤 {item.merchant_name}</span>
+                                  <span>📍 {item.city} ({item.distance_km} km away)</span>
+                                  <span>📞 {item.phone}</span>
+                                  <span>Lead Status: <strong className="text-[#002E6E]">{item.lead_status}</strong></span>
+                                </div>
+
+                                {/* Truthful Evidence-Backed Brief Callout */}
+                                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs font-semibold text-[#002E6E]">
+                                  <p className="flex items-center space-x-1.5">
+                                    <Sparkles className="w-4 h-4 text-[#00BAF2] flex-shrink-0" />
+                                    <span>
+                                      <strong>AI Field Brief:</strong> {item.evidence_backed_brief}
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Right: Actions */}
+                              <div className="flex flex-wrap md:flex-col items-end gap-2 flex-shrink-0">
+                                <button
+                                  onClick={() => openBriefModal(item.merchant_id)}
+                                  className="px-3.5 py-1.5 bg-[#F5F7FA] hover:bg-blue-50 text-[#002E6E] border border-[#D1D5DB] hover:border-[#00BAF2] text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition-colors"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-[#00BAF2]" />
+                                  <span>View Brief & Pitch</span>
+                                </button>
+
+                                <button
+                                  onClick={() => openVoiceModal(item)}
+                                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg flex items-center space-x-1.5 transition-all shadow-xs ${
+                                    isCompleted
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      : 'bg-[#00BAF2] hover:bg-[#009fd0] text-white'
+                                  }`}
+                                >
+                                  <Mic className="w-3.5 h-3.5" />
+                                  <span>{isCompleted ? 'Update Note' : 'Log Voice Note'}</span>
+                                </button>
+
+                                <a
+                                  href={`tel:${item.phone}`}
+                                  className="px-3 py-1 bg-white hover:bg-gray-50 text-gray-600 border border-gray-200 text-xs font-medium rounded-lg flex items-center space-x-1"
+                                >
+                                  <Phone className="w-3 h-3 text-gray-500" />
+                                  <span>Call Merchant</span>
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              ) : (
+                /* VIEW 2: MANAGER'S END-OF-DAY SUMMARY */
+                <div className="space-y-6">
+                  {/* KPI Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Assigned Merchants</p>
+                      <p className="text-2xl font-extrabold text-[#002E6E] mt-2">
+                        {managerSummary?.total_assigned_merchants ?? 5}
+                      </p>
+                      <p className="text-xs text-[#00BAF2] mt-1 font-medium">Jaipur Central Metro</p>
+                    </div>
+                    <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Completed Visits Today</p>
+                      <p className="text-2xl font-extrabold text-[#059669] mt-2">
+                        {managerSummary?.completed_visits_today ?? 1} / {managerSummary?.planned_visits_today ?? 5}
+                      </p>
+                      <p className="text-xs text-[#059669] mt-1 font-medium">Rep Confirmed in Person</p>
+                    </div>
+                    <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Completion Rate</p>
+                      <p className="text-2xl font-extrabold text-[#00BAF2] mt-2">
+                        {managerSummary?.completion_rate_pct ?? 20}%
+                      </p>
+                      <p className="text-xs text-[#6B7280] mt-1 font-medium">Route Progress</p>
+                    </div>
+                    <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                      <p className="text-xs font-semibold text-[#6B7280] uppercase">Leads Generated</p>
+                      <p className="text-2xl font-extrabold text-indigo-600 mt-2">
+                        {managerSummary?.leads_generated_today ?? 1}
+                      </p>
+                      <p className="text-xs text-indigo-700 mt-1 font-medium">Loan / Booster Prospects</p>
+                    </div>
+                  </div>
+
+                  {/* Rep Info Card */}
+                  <div className="p-4 bg-white rounded-card border border-[#E5E7EB] shadow-soft flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-full bg-[#002E6E] text-white flex items-center justify-center font-bold text-sm">
+                        AV
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-[#1A1A1A]">Amit Verma</h4>
+                        <p className="text-xs text-[#6B7280]">
+                          Field Sales Representative · ID: {managerSummary?.sales_rep_id || 'emp_sales_01'} · Jaipur Central Hub
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg flex items-center space-x-1">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>Active on Route</span>
+                    </span>
+                  </div>
+
+                  {/* Confirmed Visits Table */}
+                  <div className="bg-white rounded-card shadow-soft border border-[#E5E7EB] overflow-hidden">
+                    <div className="p-4 border-b border-[#E5E7EB] bg-gray-50/50 flex justify-between items-center">
+                      <div>
+                        <h3 className="font-bold text-sm text-[#1A1A1A]">Confirmed Rep Visits & Structured CRM Notes</h3>
+                        <p className="text-xs text-[#6B7280]">
+                          Authoritative log of in-person merchant check-ins confirmed by sales rep
+                        </p>
+                      </div>
+                      <span className="text-xs font-bold text-[#002E6E]">
+                        {(managerSummary?.confirmed_visits || []).length} Confirmed Visits
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase tracking-wider bg-gray-50/70">
+                            <th className="py-3 px-4">Merchant Store</th>
+                            <th className="py-3 px-3">Merchant Name</th>
+                            <th className="py-3 px-3">Lead Interest</th>
+                            <th className="py-3 px-4">Confirmed Notes (Persisted to CRM)</th>
+                            <th className="py-3 px-3 text-center">Version</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#F3F4F6] text-xs">
+                          {(managerSummary?.confirmed_visits || []).map((v) => (
+                            <tr key={v.visit_id} className="hover:bg-blue-50/30">
+                              <td className="py-3 px-4 font-bold text-[#002E6E]">{v.store_name}</td>
+                              <td className="py-3 px-3 text-gray-700">{v.merchant_name}</td>
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded text-[11px] font-semibold">
+                                  {v.lead_interest || 'GENERAL_CHECKIN'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-gray-800 max-w-md">
+                                <p className="line-clamp-2">{v.confirmed_notes || '—'}</p>
+                              </td>
+                              <td className="py-3 px-3 text-center font-mono text-gray-500">
+                                v{v.version}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL 1: EVIDENCE-BACKED BRIEF & PITCH */}
+              {selectedBrief && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-card shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-[#E5E7EB]">
+                    <div className="p-4 border-b border-[#E5E7EB] bg-gray-50 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-base text-[#002E6E]">
+                          Merchant Visit Brief: {selectedBrief.store_name}
+                        </h4>
+                        <p className="text-xs text-[#6B7280]">
+                          {selectedBrief.merchant_name} · {selectedBrief.city} · {selectedBrief.distance_km} km away · Version v{selectedBrief.version}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedBrief(null)}
+                        className="p-1.5 hover:bg-gray-200 rounded-full text-gray-500"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto space-y-4 text-xs">
+                      {/* One line summary callout */}
+                      <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-[#002E6E] font-bold">
+                        🎯 Focus: {selectedBrief.one_line_brief}
+                      </div>
+
+                      {/* Evidence Grid */}
+                      <div>
+                        <h5 className="font-bold text-xs uppercase tracking-wider text-[#6B7280] mb-2">
+                          Real Underlying System Telemetry
+                        </h5>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div className="p-3 rounded-lg border bg-gray-50">
+                            <p className="text-[10px] font-bold text-gray-500 uppercase">Soundbox Telemetry</p>
+                            <p className="font-semibold text-gray-800 mt-1">
+                              Status: {selectedBrief.evidence_breakdown.device.status || 'No Device'}
+                              {selectedBrief.evidence_breakdown.device.battery !== undefined && (
+                                <span> ({selectedBrief.evidence_breakdown.device.battery}% battery)</span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border bg-gray-50">
+                            <p className="text-[10px] font-bold text-gray-500 uppercase">KYC Application</p>
+                            <p className="font-semibold text-gray-800 mt-1">
+                              {selectedBrief.evidence_breakdown.kyc.all_passed
+                                ? '✓ All Documents Passed OCR'
+                                : selectedBrief.evidence_breakdown.kyc.missing_docs.length > 0
+                                ? `Missing: ${selectedBrief.evidence_breakdown.kyc.missing_docs.join(', ')}`
+                                : selectedBrief.evidence_breakdown.kyc.blurry_docs.length > 0
+                                ? `Blurry: ${selectedBrief.evidence_breakdown.kyc.blurry_docs.join(', ')}`
+                                : 'Verified'}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border bg-gray-50">
+                            <p className="text-[10px] font-bold text-gray-500 uppercase">Sales Trend Metric</p>
+                            <p className="font-semibold text-gray-800 mt-1">
+                              {selectedBrief.evidence_breakdown.activity.drop_percentage > 0
+                                ? `Drop: ${selectedBrief.evidence_breakdown.activity.drop_percentage}% (${selectedBrief.evidence_breakdown.activity.health_status})`
+                                : 'Consistent Transaction Volume'}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-lg border bg-gray-50">
+                            <p className="text-[10px] font-bold text-gray-500 uppercase">Settlement Ledger</p>
+                            <p className="font-semibold text-gray-800 mt-1">
+                              {selectedBrief.evidence_breakdown.settlements.disputed
+                                ? `Disputed (₹${Math.abs(selectedBrief.evidence_breakdown.settlements.last_discrepancy) / 100} gap)`
+                                : 'Reconciled Perfectly'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Contextual Talking Points */}
+                      <div>
+                        <h5 className="font-bold text-xs uppercase tracking-wider text-[#6B7280] mb-2">
+                          Contextual Talking Points for Rep
+                        </h5>
+                        <ul className="space-y-1.5 list-disc pl-4 text-gray-700">
+                          {selectedBrief.talking_points.map((pt, idx) => (
+                            <li key={idx} className="leading-relaxed">{pt}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Recommended Pitch Box */}
+                      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-950">
+                        <p className="font-bold text-emerald-900 mb-1">Recommended Product Pitch:</p>
+                        <p className="leading-relaxed">{selectedBrief.recommended_pitch}</p>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border-t border-[#E5E7EB] bg-gray-50 flex justify-between items-center">
+                      <button
+                        onClick={() => setSelectedBrief(null)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                      >
+                        Close
+                      </button>
+                      <button
+                        onClick={() => {
+                          const routeItem = fieldRoute.find((r) => r.merchant_id === selectedBrief.merchant_id);
+                          setSelectedBrief(null);
+                          if (routeItem) openVoiceModal(routeItem);
+                        }}
+                        className="px-4 py-2 bg-[#00BAF2] hover:bg-[#009fd0] text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5"
+                      >
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Log Voice Note for this Visit</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL 2: VOICE NOTE EXTRACTION & EXPLICIT CONFIRMATION GATE */}
+              {voiceModalVisit && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-card shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-[#E5E7EB]">
+                    <div className="p-4 border-b border-[#E5E7EB] bg-gray-50 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-base text-[#002E6E]">
+                          Log Visit Note: {voiceModalVisit.store_name}
+                        </h4>
+                        <p className="text-xs text-[#6B7280]">
+                          Merchant: {voiceModalVisit.merchant_name} · Concurrency Version: v{voiceModalVisit.version}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setVoiceModalVisit(null)}
+                        className="p-1.5 hover:bg-gray-200 rounded-full text-gray-500"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto space-y-4 text-xs">
+                      {/* Step 1: Input transcript or field note */}
+                      <div className="space-y-1.5">
+                        <label className="font-bold text-gray-700 block">
+                          Rep Voice Note / Observations:
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={voiceTranscript}
+                          onChange={(e) => setVoiceTranscript(e.target.value)}
+                          placeholder="e.g., Met Ramesh ji. Checked loose power adapter, soundbox turned on. Merchant is keen on ₹50,000 loan to expand inventory next Tuesday."
+                          className="w-full p-3 bg-gray-50 border border-gray-300 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#00BAF2]"
+                        />
+                        <div className="flex justify-between items-center pt-1">
+                          <span className="text-[11px] text-gray-500">
+                            Type observations or click microphone to simulate voice note transcription.
+                          </span>
+                          <button
+                            onClick={handleExtractVoiceNote}
+                            disabled={extractingVoice || !voiceTranscript.trim()}
+                            className="px-3 py-1.5 bg-[#002E6E] hover:bg-[#002252] text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                          >
+                            <Sparkles className={`w-3.5 h-3.5 ${extractingVoice ? 'animate-spin' : ''}`} />
+                            <span>{extractingVoice ? 'Extracting...' : 'Extract Candidate Draft'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Step 2: Unconfirmed Draft & Mandatory Confirmation Gate */}
+                      {extractedDraft && (
+                        <div className="space-y-3 pt-2 border-t border-gray-200">
+                          {/* Invariant Warning Banner */}
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                            <p className="font-bold flex items-center space-x-1">
+                              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                              <span>Core Invariant: UNCONFIRMED DRAFT</span>
+                            </p>
+                            <p className="mt-0.5 leading-relaxed">
+                              Candidate fields extracted by AI are unpersisted. The sales rep must review, edit if necessary, and explicitly click <strong>Confirm & Commit to CRM</strong>.
+                            </p>
+                          </div>
+
+                          {/* Candidate Extraction Badges */}
+                          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-1.5">
+                            <p className="text-[10px] font-bold text-gray-500 uppercase">Extracted Candidate Fields:</p>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-900 rounded font-semibold text-[11px]">
+                                Sentiment: {extractedDraft.extracted_candidate_fields.merchant_sentiment || 'NEUTRAL'}
+                              </span>
+                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded font-semibold text-[11px]">
+                                Topic: {extractedDraft.extracted_candidate_fields.product_discussed || 'GENERAL'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Editable Confirmed Notes */}
+                          <div className="space-y-1">
+                            <label className="font-bold text-gray-700 block">
+                              Confirmed Notes to Persist to CRM:
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={confirmedNotesInput}
+                              onChange={(e) => setConfirmedNotesInput(e.target.value)}
+                              className="w-full p-2.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#00BAF2]"
+                            />
+                          </div>
+
+                          {/* Lead Interest Selector */}
+                          <div className="space-y-1">
+                            <label className="font-bold text-gray-700 block">
+                              Lead Interest Level:
+                            </label>
+                            <select
+                              value={leadInterestInput}
+                              onChange={(e) => setLeadInterestInput(e.target.value)}
+                              className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs text-gray-900 focus:outline-none focus:border-[#00BAF2]"
+                            >
+                              <option value="INTERESTED_MERCHANT_LOAN">Interested in Merchant Growth Loan</option>
+                              <option value="INTERESTED_SOUNDBOX_UPGRADE">Interested in Soundbox 4G Pro Upgrade</option>
+                              <option value="INTERESTED_KIRANA_BOOSTER">Interested in Kirana Booster Offer (0% MDR)</option>
+                              <option value="FOLLOWUP_REQUESTED">Follow-up Requested Next Week</option>
+                              <option value="NOT_INTERESTED">Not Interested</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Conflict Notification Banner (409 Conflict) */}
+                      {conflictError && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-900">
+                          <p className="font-bold flex items-center space-x-1">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                            <span>Write Blocked:</span>
+                          </p>
+                          <p className="mt-0.5">{conflictError}</p>
+                        </div>
+                      )}
+
+                      {/* Success Toast */}
+                      {confirmSuccessMsg && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 font-bold flex items-center space-x-1.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span>{confirmSuccessMsg}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4 border-t border-[#E5E7EB] bg-gray-50 flex justify-between items-center">
+                      <button
+                        onClick={() => setVoiceModalVisit(null)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        onClick={handleConfirmVoiceNote}
+                        disabled={savingConfirm || (!confirmedNotesInput.trim() && !voiceTranscript.trim())}
+                        className="px-4 py-2 bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold rounded-lg shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>
+                          {savingConfirm
+                            ? 'Committing to CRM...'
+                            : `Confirm & Commit to CRM (v${voiceModalVisit.version})`}
+                        </span>
+                      </button>
                     </div>
                   </div>
                 </div>

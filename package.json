@@ -4,6 +4,8 @@
   "private": true,
   "description": "Paytm Saathi — Multi-Agent AI Teammate Monorepo",
   "scripts": {
+    "postinstall": "pnpm --filter @paytm-saathi/design-tokens build",
+    "build": "pnpm --filter @paytm-saathi/design-tokens build",
     "build:tokens": "pnpm --filter @paytm-saathi/design-tokens build",
     "dev:employee": "pnpm --filter employee-web dev",
     "dev:mobile": "pnpm --filter merchant-mobile start"

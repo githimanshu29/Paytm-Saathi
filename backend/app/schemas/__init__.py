@@ -8,6 +8,16 @@ from app.schemas.auth import (
     TokenResponse,
     UserMeResponse,
 )
+from app.schemas.merchant import (
+    DeviceSummary,
+    TransactionItem,
+    PaymentSummary,
+    ReceivableItem,
+    DuesSummary,
+    MerchantSummaryResponse,
+    ChatMessageRequest,
+    ChatMessageResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -20,4 +30,12 @@ __all__ = [
     "EmployeeLoginRequest",
     "TokenResponse",
     "UserMeResponse",
+    "DeviceSummary",
+    "TransactionItem",
+    "PaymentSummary",
+    "ReceivableItem",
+    "DuesSummary",
+    "MerchantSummaryResponse",
+    "ChatMessageRequest",
+    "ChatMessageResponse",
 ]

@@ -5,9 +5,11 @@ from app.policy.audit import audit_log
 from app.schemas.common import HealthResponse
 from app.core.config import settings
 from app.api.auth import auth_router
+from app.api.merchant import merchant_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
+api_router.include_router(merchant_router)
 
 @api_router.get("/health", response_model=HealthResponse)
 def health_check(db: Session = Depends(get_db)):

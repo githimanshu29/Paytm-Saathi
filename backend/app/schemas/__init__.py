@@ -18,6 +18,15 @@ from app.schemas.merchant import (
     ChatMessageRequest,
     ChatMessageResponse,
 )
+from app.schemas.employee import (
+    DashboardKPISummary,
+    AuditEventItem,
+    AuditLogResponse,
+    CaseApprovalSummary,
+    CaseItem,
+    CasesResponse,
+    CaseTimelineResponse,
+)
 
 __all__ = [
     "HealthResponse",
@@ -38,4 +47,11 @@ __all__ = [
     "MerchantSummaryResponse",
     "ChatMessageRequest",
     "ChatMessageResponse",
+    "DashboardKPISummary",
+    "AuditEventItem",
+    "AuditLogResponse",
+    "CaseApprovalSummary",
+    "CaseItem",
+    "CasesResponse",
+    "CaseTimelineResponse",
 ]

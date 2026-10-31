@@ -1,0 +1,14 @@
+{
+  "name": "paytm-saathi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Paytm Saathi — Multi-Agent AI Teammate Monorepo",
+  "scripts": {
+    "build:tokens": "pnpm --filter @paytm-saathi/design-tokens build",
+    "dev:employee": "pnpm --filter employee-web dev",
+    "dev:mobile": "pnpm --filter merchant-mobile start"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

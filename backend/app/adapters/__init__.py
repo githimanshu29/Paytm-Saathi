@@ -1,0 +1,1 @@
+"""Typed Mock & External Adapters"""

@@ -83,6 +83,9 @@ interface CaseItem {
   priority: string;
   assigned_to?: string;
   approval?: CaseApproval;
+  evidence_notes?: string;
+  evidence_url?: string;
+  dispute_amount_formatted?: string;
   created_at: string;
   updated_at: string;
 }
@@ -422,6 +425,16 @@ export function App() {
       if (bucketFilter === 'ALL') return isResolve;
       return isResolve && c.bucket === bucketFilter;
     }
+    if (activeTab === 'reconcile') {
+      const isReconcile =
+        c.title.toLowerCase().includes('settlement') ||
+        c.title.toLowerCase().includes('dispute') ||
+        c.title.toLowerCase().includes('discrepancy') ||
+        c.title.toLowerCase().includes('shortfall') ||
+        c.title.toLowerCase().includes('reconcil');
+      if (bucketFilter === 'ALL') return isReconcile;
+      return isReconcile && c.bucket === bucketFilter;
+    }
     if (bucketFilter === 'ALL') return true;
     return c.bucket === bucketFilter;
   });
@@ -653,6 +666,11 @@ export function App() {
                         <td className="py-3 px-4 max-w-xs">
                           <p className="font-bold text-[#1A1A1A] truncate">{c.title}</p>
                           <p className="text-[11px] text-[#6B7280] truncate">{c.assigned_to || 'Unassigned'}</p>
+                          {c.dispute_amount_formatted && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              Shortfall: {c.dispute_amount_formatted}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3">
                           <p className="font-semibold text-[#002E6E]">{c.store_name}</p>
@@ -821,6 +839,41 @@ export function App() {
                   <p className="text-[11px] text-amber-800">
                     Approver: <strong>{selectedCase.approval.approver}</strong> · Expires: {selectedCase.approval.expires_at || '24 hrs'}
                   </p>
+                </div>
+              )}
+
+              {/* Settlement Audit & Discrepancy Evidence Card (Reconcile Agent) */}
+              {(selectedCase.dispute_amount_formatted || selectedCase.evidence_notes) && (
+                <div className="p-4 rounded-card border-2 border-rose-200 bg-rose-50/70 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                      <Scale className="w-4 h-4 text-rose-600" />
+                      Nodal Settlement Discrepancy Evidence
+                    </span>
+                    {selectedCase.dispute_amount_formatted && (
+                      <span className="text-[11px] font-bold text-rose-800 bg-rose-200/80 px-2 py-0.5 rounded font-mono">
+                        {selectedCase.dispute_amount_formatted} Shortfall
+                      </span>
+                    )}
+                  </div>
+                  {selectedCase.evidence_notes && (
+                    <p className="text-xs text-rose-950 font-medium leading-relaxed bg-white/80 p-2.5 rounded-lg border border-rose-200">
+                      {selectedCase.evidence_notes}
+                    </p>
+                  )}
+                  {selectedCase.evidence_url && (
+                    <div className="flex items-center justify-between text-[11px] text-rose-800 pt-1 border-t border-rose-200">
+                      <span>Nodal Record: <strong className="font-mono">{selectedCase.evidence_url.split('/').pop()}</strong></span>
+                      <a
+                        href={selectedCase.evidence_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#002E6E] font-bold hover:underline inline-flex items-center gap-1"
+                      >
+                        Statement Attachment <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -90,6 +90,8 @@ class ChatMessageResponse(BaseModel):
     technician_booked: Optional[bool] = False
     technician_slot: Optional[str] = None
     action_card: Optional[Dict[str, Any]] = None
+    breakdown_card: Optional[Dict[str, Any]] = None
+    settlement_date: Optional[str] = None
     approval_card: Optional[ApprovalCardData] = None
     speech_audio_base64: Optional[str] = None
     speech_duration_seconds: Optional[float] = None

@@ -19,6 +19,9 @@ from app.db.models import (
     ActionApproval,
     ApprovalDecision,
     AuditEvent,
+    TransactionFee,
+    Chargeback,
+    Settlement,
 )
 from app.core.security import hash_password
 
@@ -287,6 +290,232 @@ def seed_demo_data():
             )
             db.add(t_executed)
 
+            # Phase 6: Settlements & Line Items
+            # (1) Normal Day (2026-10-28, Yesterday) - Reconciles perfectly to 0 discrepancy
+            d_norm = datetime(2026, 10, 28, 12, 0, 0, tzinfo=timezone.utc)
+            db.add(
+                Transaction(
+                    id="txn_sharma_norm_01",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=600000,  # ₹6,000.00
+                    currency="INR",
+                    status="SUCCESS",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_28_01",
+                    customer_name="Rohan Verma",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="rohan@okaxis",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+            db.add(
+                Transaction(
+                    id="txn_sharma_norm_02",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=400000,  # ₹4,000.00
+                    currency="INR",
+                    status="SUCCESS",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_28_02",
+                    customer_name="Kavita Mehta",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="kavita@okhdfcbank",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+            db.add(
+                Transaction(
+                    id="txn_sharma_norm_ref",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=50000,  # ₹500.00
+                    currency="INR",
+                    status="REVERSED",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_28_REF",
+                    customer_name="Alok Jain",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="COMPLETED",
+                    payer_vpa="alok@paytm",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+            db.add(
+                TransactionFee(
+                    id="fee_sharma_norm_01",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    transaction_id="txn_sharma_norm_01",
+                    amount=5000,  # ₹50.00 MDR
+                    fee_type="MDR",
+                    description="MDR fee (0.5% UPI volume)",
+                    settlement_date="2026-10-28",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+            db.add(
+                TransactionFee(
+                    id="fee_sharma_norm_02",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    transaction_id=None,
+                    amount=25000,  # ₹250.00
+                    fee_type="SOUNDBOX_RENTAL",
+                    description="Soundbox 4G Pro monthly subscription",
+                    settlement_date="2026-10-28",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+            db.add(
+                Settlement(
+                    id="sett_sharma_20261028",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    settlement_date="2026-10-28",
+                    gross_sales=1000000,  # ₹10,000.00
+                    refunds=50000,        # ₹500.00
+                    fees=30000,           # ₹300.00
+                    chargebacks=0,        # ₹0.00
+                    net_expected=920000,  # ₹9,200.00
+                    net_settled=920000,   # ₹9,200.00
+                    discrepancy=0,        # ₹0.00 (Fully Reconciled)
+                    status="RECONCILED",
+                    bank_utr="ICICINODAL99281028",
+                    nodal_account="ICICI_NODAL_0192",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_norm,
+                )
+            )
+
+            # (2) Anomalous Day (2026-10-27) - ₹1,200 (120,000 paise) shortfall discrepancy
+            d_anom = datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc)
+            db.add(
+                Transaction(
+                    id="txn_sharma_anom_01",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=900000,  # ₹9,000.00
+                    currency="INR",
+                    status="SUCCESS",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_27_01",
+                    customer_name="Suresh Agarwal",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="suresh@okaxis",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+            db.add(
+                Transaction(
+                    id="txn_sharma_anom_02",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=600000,  # ₹6,000.00
+                    currency="INR",
+                    status="SUCCESS",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_27_02",
+                    customer_name="Neha Sharma",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="NONE",
+                    payer_vpa="neha@icici",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+            db.add(
+                Transaction(
+                    id="txn_sharma_anom_ref",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    amount=100000,  # ₹1,000.00
+                    currency="INR",
+                    status="REVERSED",
+                    payment_rail="UPI",
+                    utr_or_ref="UPI_SHARMA_27_REF",
+                    customer_name="Vikram Singh",
+                    bank_response_code="00_SUCCESS",
+                    reversal_status="COMPLETED",
+                    payer_vpa="vikram@paytm",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+            db.add(
+                TransactionFee(
+                    id="fee_sharma_anom_01",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    transaction_id="txn_sharma_anom_01",
+                    amount=45000,  # ₹450.00
+                    fee_type="MDR",
+                    description="MDR and payment gateway processing fee",
+                    settlement_date="2026-10-27",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+            db.add(
+                Chargeback(
+                    id="cb_sharma_anom_01",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    transaction_id="txn_sharma_anom_02",
+                    amount=55000,  # ₹550.00
+                    status="PROCESSED",
+                    reason="CUSTOMER_FRAUD_CLAIM",
+                    dispute_ref="CB_ICICI_99812",
+                    evidence_notes="Customer claimed card clone / unauthorized UPI intent debit",
+                    settlement_date="2026-10-27",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+            db.add(
+                Settlement(
+                    id="sett_sharma_20261027",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    settlement_date="2026-10-27",
+                    gross_sales=1500000,   # ₹15,000.00
+                    refunds=100000,        # ₹1,000.00
+                    fees=45000,            # ₹450.00
+                    chargebacks=55000,      # ₹550.00
+                    net_expected=1300000,  # ₹13,000.00
+                    net_settled=1180000,   # ₹11,800.00
+                    discrepancy=-120000,   # -₹1,200.00 Shortfall
+                    status="DISCREPANCY",
+                    bank_utr="ICICINODAL99271027",
+                    nodal_account="ICICI_NODAL_0192",
+                    evidence_attached="ICICI Nodal Batch statement #BATCH-20261027-01 shows payout of ₹11,800.00 vs expected net ₹13,000.00 (Shortfall: ₹1,200.00).",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=d_anom,
+                )
+            )
+
         # Merchant 2: Suresh Verma (Kanpur) - Degraded Soundbox 2.0 (Low Battery & Weak Signal)
         m2 = db.query(Merchant).filter_by(id="mer_verma_sweets").first()
         if not m2:
@@ -379,6 +608,51 @@ def seed_demo_data():
                 )
             )
 
+            # Phase 6: Settlements for Verma Sweets
+            db.add(
+                Settlement(
+                    id="sett_verma_20261028",
+                    tenant_id=tenant.id,
+                    merchant_id=m2.id,
+                    settlement_date="2026-10-28",
+                    gross_sales=800000,
+                    refunds=40000,
+                    fees=24000,
+                    chargebacks=0,
+                    net_expected=736000,
+                    net_settled=736000,
+                    discrepancy=0,
+                    status="RECONCILED",
+                    bank_utr="ICICINODAL88281028",
+                    nodal_account="ICICI_NODAL_0192",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=datetime(2026, 10, 28, 12, 0, 0, tzinfo=timezone.utc),
+                )
+            )
+            db.add(
+                Settlement(
+                    id="sett_verma_20261027",
+                    tenant_id=tenant.id,
+                    merchant_id=m2.id,
+                    settlement_date="2026-10-27",
+                    gross_sales=1200000,
+                    refunds=80000,
+                    fees=36000,
+                    chargebacks=40000,
+                    net_expected=1044000,
+                    net_settled=950000,
+                    discrepancy=-94000,  # Shortfall: -₹940.00
+                    status="DISCREPANCY",
+                    bank_utr="ICICINODAL88271027",
+                    nodal_account="ICICI_NODAL_0192",
+                    evidence_attached="ICICI Nodal Batch statement mismatch: Credited ₹9,500.00 vs expected net ₹10,440.00 (Shortfall: ₹940.00).",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc),
+                )
+            )
+
         # Merchant 3: Neha Gupta (Delhi) - Offline Device stuck in firmware boot loop
         m3 = db.query(Merchant).filter_by(id="mer_gupta_electronics").first()
         if not m3:
@@ -432,6 +706,51 @@ def seed_demo_data():
                 environment="DEMO",
             )
             db.add(t_needs_human)
+
+            # Phase 6: Settlements for Gupta Electronics
+            db.add(
+                Settlement(
+                    id="sett_gupta_20261028",
+                    tenant_id=tenant.id,
+                    merchant_id=m3.id,
+                    settlement_date="2026-10-28",
+                    gross_sales=2000000,
+                    refunds=100000,
+                    fees=60000,
+                    chargebacks=0,
+                    net_expected=1840000,
+                    net_settled=1840000,
+                    discrepancy=0,
+                    status="RECONCILED",
+                    bank_utr="ICICINODAL77281028",
+                    nodal_account="ICICI_NODAL_0192",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=datetime(2026, 10, 28, 12, 0, 0, tzinfo=timezone.utc),
+                )
+            )
+            db.add(
+                Settlement(
+                    id="sett_gupta_20261027",
+                    tenant_id=tenant.id,
+                    merchant_id=m3.id,
+                    settlement_date="2026-10-27",
+                    gross_sales=2500000,
+                    refunds=150000,
+                    fees=75000,
+                    chargebacks=125000,
+                    net_expected=2150000,
+                    net_settled=1950000,
+                    discrepancy=-200000,  # Shortfall: -₹2,000.00
+                    status="DISCREPANCY",
+                    bank_utr="ICICINODAL77271027",
+                    nodal_account="ICICI_NODAL_0192",
+                    evidence_attached="ICICI Nodal Batch statement mismatch: Credited ₹19,500.00 vs expected net ₹21,500.00 (Shortfall: ₹2,000.00).",
+                    is_synthetic=True,
+                    environment="DEMO",
+                    created_at=datetime(2026, 10, 27, 12, 0, 0, tzinfo=timezone.utc),
+                )
+            )
 
         # Merchant 4: Dinesh Yadav (Lucknow) - Dormant & Discharged Soundbox 3.0
         m4 = db.query(Merchant).filter_by(id="mer_laxmi_dairy").first()

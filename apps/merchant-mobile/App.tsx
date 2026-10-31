@@ -112,7 +112,7 @@ interface ApprovalCardData {
 interface ActionCardData {
   type: string;
   task_id?: string;
-  serial_number: string;
+  serial_number?: string;
   slot?: string;
   battery_level?: number;
   assigned_to?: string;
@@ -120,12 +120,29 @@ interface ActionCardData {
   status: string;
 }
 
+interface SettlementBreakdownCardData {
+  type: string;
+  settlement_date: string;
+  gross_sales: string;
+  refunds: string;
+  fees: string;
+  chargebacks: string;
+  net_expected: string;
+  net_settled: string;
+  discrepancy: string;
+  is_reconciled: boolean;
+  status: string;
+  bank_utr?: string;
+  dispute_case_id?: string;
+  evidence_status?: string;
+}
+
 interface ChatMessage {
   id: string;
   sender: 'user' | 'saathi';
   text: string;
   timestamp: string;
-  agent?: string; // RESOLVE | FIX | ORCHESTRATOR
+  agent?: string; // RESOLVE | FIX | RECONCILE | ORCHESTRATOR
   branch?: string;
   step?: string;
   chip_status?: StatusType;
@@ -133,7 +150,10 @@ interface ChatMessage {
   explanation_hi?: string;
   approval_card?: ApprovalCardData | null;
   action_card?: ActionCardData | null;
+  breakdown_card?: SettlementBreakdownCardData | null;
+  settlement_date?: string;
   approval_decided?: 'APPROVED' | 'REJECTED';
+  evidence_uploaded?: boolean;
   speech_audio_base64?: string;
   speech_duration_seconds?: number;
 }
@@ -361,6 +381,8 @@ export default function App() {
         explanation_hi: data.explanation_hi,
         approval_card: data.approval_card,
         action_card: data.action_card,
+        breakdown_card: data.breakdown_card,
+        settlement_date: data.settlement_date,
         speech_audio_base64: data.speech_audio_base64,
         speech_duration_seconds: data.speech_duration_seconds,
       };
@@ -818,7 +840,7 @@ export default function App() {
             </TouchableOpacity>
             <View style={{ alignItems: 'center' }}>
               <Text style={styles.chatHeaderTitle}>Saathi Multi-Agent</Text>
-              <Text style={styles.chatHeaderSubtitle}>Resolve (Payments) & Fix (Soundbox Voice)</Text>
+              <Text style={styles.chatHeaderSubtitle}>Resolve · Fix · Reconcile Copilot</Text>
             </View>
             <StatusChipNative status="verified" size="sm" label="Active" />
           </View>
@@ -833,6 +855,18 @@ export default function App() {
           {/* Scenario Quick-Test Chips */}
           <View style={styles.quickChipsBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsScroll}>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage("Check yesterday's settlement breakdown")}
+              >
+                <Text style={styles.quickChipText}>📊 Yesterday's Settlement (Reconciled)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Check 27 Oct settlement discrepancy shortfall')}
+              >
+                <Text style={styles.quickChipText}>⚠️ 27 Oct Settlement (Discrepancy Shortfall)</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.quickChip}
                 onPress={() => handleSendMessage('Soundbox light is red and not announcing payments')}
@@ -971,6 +1005,100 @@ export default function App() {
                         </Text>
                       </View>
                     )}
+
+                    {/* Structured Settlement Breakdown Card (Reconcile Agent) */}
+                    {isSaathi && (msg.breakdown_card || (msg.action_card && msg.action_card.type === 'SETTLEMENT_BREAKDOWN')) && (() => {
+                      const card = msg.breakdown_card || (msg.action_card as any);
+                      return (
+                        <View style={styles.settlementCardContainer}>
+                          <View style={styles.settlementCardHeader}>
+                            <View>
+                              <Text style={styles.settlementCardTitle}>📊 Settlement Breakdown</Text>
+                              <Text style={styles.settlementCardDate}>{card.settlement_date}</Text>
+                            </View>
+                            <StatusChipNative
+                              status={card.is_reconciled ? 'verified' : 'needs_human'}
+                              size="sm"
+                              label={card.is_reconciled ? 'Reconciled' : 'Shortfall Detected'}
+                            />
+                          </View>
+
+                          <View style={styles.settlementTable}>
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowLabel}>Gross Sales</Text>
+                              <Text style={[styles.settlementRowVal, { color: '#065F46' }]}>+{card.gross_sales}</Text>
+                            </View>
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowLabel}>Customer Refunds</Text>
+                              <Text style={[styles.settlementRowVal, { color: '#B91C1C' }]}>-{card.refunds}</Text>
+                            </View>
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowLabel}>MDR & Soundbox Fees</Text>
+                              <Text style={[styles.settlementRowVal, { color: '#B91C1C' }]}>-{card.fees}</Text>
+                            </View>
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowLabel}>Chargebacks Deducted</Text>
+                              <Text style={[styles.settlementRowVal, { color: '#B91C1C' }]}>-{card.chargebacks}</Text>
+                            </View>
+                            <View style={styles.settlementDivider} />
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowBoldLabel}>Calculated Net Due</Text>
+                              <Text style={styles.settlementRowBoldVal}>{card.net_expected}</Text>
+                            </View>
+                            <View style={styles.settlementRow}>
+                              <Text style={styles.settlementRowBoldLabel}>Actual Bank Deposit</Text>
+                              <Text style={[styles.settlementRowBoldVal, { color: colors.paytmBlue }]}>{card.net_settled}</Text>
+                            </View>
+                            <View style={styles.settlementDivider} />
+                            <View style={[styles.settlementRow, card.is_reconciled ? styles.settlementReconciledBg : styles.settlementDiscrepancyBg]}>
+                              <Text style={[styles.settlementDiscrepancyLabel, { color: card.is_reconciled ? '#065F46' : '#991B1B' }]}>
+                                {card.is_reconciled ? 'Discrepancy' : 'Unexplained Shortfall'}
+                              </Text>
+                              <Text style={[styles.settlementDiscrepancyVal, { color: card.is_reconciled ? '#065F46' : '#DC2626' }]}>
+                                {card.discrepancy}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {card.bank_utr && (
+                            <Text style={styles.settlementUtrText}>
+                              Bank UTR: <Text style={{ fontWeight: '700' }}>{card.bank_utr}</Text>
+                            </Text>
+                          )}
+
+                          {/* Anomaly Dispute Case Banner & Evidence Action */}
+                          {!card.is_reconciled && (
+                            <View style={styles.settlementDisputeNoticeBox}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Text style={styles.settlementDisputeTitle}>⚠️ Case #{card.dispute_case_id} Queued</Text>
+                                <StatusChipNative status="needs_human" size="sm" label="Nodal Ops" />
+                              </View>
+                              <Text style={styles.settlementDisputeDesc}>
+                                Our Nodal Settlement Desk is investigating the {card.discrepancy} gap against nodal ledger.
+                              </Text>
+                              {!msg.evidence_uploaded ? (
+                                <TouchableOpacity
+                                  style={styles.evidenceUploadBtn}
+                                  onPress={() => {
+                                    setChatMessages((prev) =>
+                                      prev.map((m) => (m.id === msg.id ? { ...m, evidence_uploaded: true } : m))
+                                    );
+                                  }}
+                                >
+                                  <Text style={styles.evidenceUploadBtnText}>📷 Attach Passbook / Statement Proof</Text>
+                                </TouchableOpacity>
+                              ) : (
+                                <View style={styles.evidenceSuccessBox}>
+                                  <Text style={styles.evidenceSuccessText}>
+                                    ✓ Passbook photo proof attached to Case #{card.dispute_case_id}. Review priority boosted.
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()}
 
                     {/* Inline Human Approval Card (Branch B Refund Review) */}
                     {isSaathi && msg.approval_card && (
@@ -1748,6 +1876,147 @@ const styles = StyleSheet.create({
   approvalDecidedText: {
     fontSize: 11,
     color: '#065F46',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  // Structured Settlement Breakdown Card Styles
+  settlementCardContainer: {
+    marginTop: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    borderRadius: radii.card,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  settlementCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F9FF',
+    paddingBottom: 6,
+  },
+  settlementCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#002E6E',
+  },
+  settlementCardDate: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  settlementTable: {
+    marginVertical: 4,
+  },
+  settlementRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  settlementRowLabel: {
+    fontSize: 11,
+    color: '#4B5563',
+  },
+  settlementRowVal: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  settlementDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 4,
+  },
+  settlementRowBoldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  settlementRowBoldVal: {
+    fontSize: 12,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  settlementReconciledBg: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  settlementDiscrepancyBg: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  settlementDiscrepancyLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  settlementDiscrepancyVal: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  settlementUtrText: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 6,
+  },
+  settlementDisputeNoticeBox: {
+    marginTop: 8,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 8,
+    padding: 8,
+  },
+  settlementDisputeTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#9A3412',
+  },
+  settlementDisputeDesc: {
+    fontSize: 10,
+    color: '#C2410C',
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  evidenceUploadBtn: {
+    marginTop: 6,
+    backgroundColor: '#002E6E',
+    borderRadius: radii.pill,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evidenceUploadBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  evidenceSuccessBox: {
+    marginTop: 6,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 6,
+    padding: 6,
+  },
+  evidenceSuccessText: {
+    color: '#065F46',
+    fontSize: 10,
     fontWeight: '700',
     textAlign: 'center',
   },

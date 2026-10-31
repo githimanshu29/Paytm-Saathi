@@ -105,7 +105,7 @@ def get_merchant_summary(
             technician_slot=device_row.technician_slot,
         )
 
-    # 2. Payments & Transactions Summary
+    # 2. Payments & Transactions Summary (filter today's real-time checkout sales)
     transactions = (
         db.query(Transaction)
         .filter_by(merchant_id=merchant.id)
@@ -114,10 +114,15 @@ def get_merchant_summary(
         .all()
     )
 
-    today_success_paise = sum(
-        tx.amount for tx in transactions if tx.status.upper() == "SUCCESS"
-    )
-    today_count = sum(1 for tx in transactions if tx.status.upper() == "SUCCESS")
+    today_date = datetime.utcnow().date()
+    today_success_txs = [
+        tx for tx in transactions
+        if tx.status.upper() == "SUCCESS"
+        and not tx.id.startswith("tx_set_")
+        and (not tx.created_at or tx.created_at.date() == today_date)
+    ]
+    today_success_paise = sum(tx.amount for tx in today_success_txs)
+    today_count = len(today_success_txs)
 
     tx_items = [
         TransactionItem(
@@ -238,6 +243,8 @@ def send_chat_message(
         technician_booked=result.get("technician_booked", False),
         technician_slot=result.get("technician_slot"),
         action_card=result.get("action_card"),
+        breakdown_card=result.get("breakdown_card"),
+        settlement_date=result.get("settlement_date"),
         approval_card=approval_card_data,
         speech_audio_base64=result.get("speech_audio_base64"),
         speech_duration_seconds=result.get("speech_duration_seconds"),
@@ -297,6 +304,8 @@ def send_voice_chat(
         technician_booked=result.get("technician_booked", False),
         technician_slot=result.get("technician_slot"),
         action_card=result.get("action_card"),
+        breakdown_card=result.get("breakdown_card"),
+        settlement_date=result.get("settlement_date"),
         approval_card=approval_card_data,
         speech_audio_base64=result.get("speech_audio_base64"),
         speech_duration_seconds=result.get("speech_duration_seconds"),

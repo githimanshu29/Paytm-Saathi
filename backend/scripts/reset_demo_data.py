@@ -16,6 +16,10 @@ from app.db.models import (
     Task,
     ActionApproval,
     AuditEvent,
+    ScheduledJob,
+    TransactionFee,
+    Chargeback,
+    Settlement,
 )
 from scripts.seed_demo_data import seed_demo_data
 
@@ -27,6 +31,10 @@ def reset_demo_data():
         db.query(AuditEvent).delete()
         db.query(ActionApproval).delete()
         db.query(Task).delete()
+        db.query(ScheduledJob).delete()
+        db.query(Chargeback).delete()
+        db.query(TransactionFee).delete()
+        db.query(Settlement).delete()
         db.query(Receivable).delete()
         db.query(Customer).delete()
         db.query(Transaction).delete()

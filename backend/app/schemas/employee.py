@@ -45,6 +45,9 @@ class CaseItem(BaseModel):
     bucket: str  # verified | executed | pending | awaiting_approval | needs_human
     priority: str
     assigned_to: Optional[str] = None
+    evidence_notes: Optional[str] = None
+    evidence_url: Optional[str] = None
+    dispute_amount_formatted: Optional[str] = None
     approval: Optional[CaseApprovalSummary] = None
     created_at: str
     updated_at: str

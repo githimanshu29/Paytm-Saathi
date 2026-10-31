@@ -18,6 +18,15 @@ from app.adapters.speech import (
     SpeechTranscriptionResult,
     SpeechSynthesisResult,
 )
+from app.adapters.settlement import (
+    ISettlementAdapter,
+    MockSettlementAdapter,
+    SettlementRecord,
+    SettlementLineItemsRecord,
+    FeeLineItem,
+    ChargebackLineItem,
+    TransactionLineItem,
+)
 
 __all__ = [
     "ITransactionAdapter",
@@ -34,4 +43,11 @@ __all__ = [
     "MockSpeechAdapter",
     "SpeechTranscriptionResult",
     "SpeechSynthesisResult",
+    "ISettlementAdapter",
+    "MockSettlementAdapter",
+    "SettlementRecord",
+    "SettlementLineItemsRecord",
+    "FeeLineItem",
+    "ChargebackLineItem",
+    "TransactionLineItem",
 ]

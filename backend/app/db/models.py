@@ -78,6 +78,9 @@ class Merchant(Base):
     customers = relationship("Customer", back_populates="merchant")
     receivables = relationship("Receivable", back_populates="merchant")
     tasks = relationship("Task", back_populates="merchant")
+    settlements = relationship("Settlement", back_populates="merchant")
+    fees = relationship("TransactionFee", back_populates="merchant")
+    chargebacks = relationship("Chargeback", back_populates="merchant")
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -146,6 +149,8 @@ class Transaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     merchant = relationship("Merchant", back_populates="transactions")
+    fees = relationship("TransactionFee", back_populates="transaction")
+    chargebacks = relationship("Chargeback", back_populates="transaction")
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -196,6 +201,9 @@ class Task(Base):
     bucket = Column(SQLEnum(TaskBucket), default=TaskBucket.PENDING, nullable=False)
     priority = Column(String(32), default="MEDIUM", nullable=False)
     assigned_to = Column(String(255), nullable=True)
+    evidence_notes = Column(Text, nullable=True)
+    evidence_url = Column(String(255), nullable=True)
+    dispute_amount = Column(Integer, nullable=True)
     
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)
@@ -262,3 +270,75 @@ class ScheduledJob(Base):
     environment = Column(String(32), default="DEMO", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+class TransactionFee(Base):
+    __tablename__ = "transaction_fees"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    transaction_id = Column(String(64), ForeignKey("transactions.id"), nullable=True)
+    # Integer minor units (paise)
+    amount = Column(Integer, nullable=False)
+    fee_type = Column(String(50), default="MDR", nullable=False)  # MDR | GST | SOUNDBOX_RENTAL | PLATFORM_FEE
+    description = Column(String(255), nullable=True)
+    settlement_date = Column(String(20), nullable=True)  # YYYY-MM-DD
+    
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="fees")
+    transaction = relationship("Transaction", back_populates="fees")
+
+class Chargeback(Base):
+    __tablename__ = "chargebacks"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    transaction_id = Column(String(64), ForeignKey("transactions.id"), nullable=True)
+    # Integer minor units (paise)
+    amount = Column(Integer, nullable=False)
+    status = Column(String(50), default="PROCESSED", nullable=False)  # OPEN | PROCESSED | DISPUTED | REVERSED
+    reason = Column(String(255), nullable=False)  # CUSTOMER_DISPUTE | DUPLICATE_DEBIT | FRAUD_CLAIM
+    dispute_ref = Column(String(100), nullable=True)
+    evidence_notes = Column(Text, nullable=True)
+    settlement_date = Column(String(20), nullable=True)  # YYYY-MM-DD
+    
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="chargebacks")
+    transaction = relationship("Transaction", back_populates="chargebacks")
+
+class Settlement(Base):
+    __tablename__ = "settlements"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
+    merchant_id = Column(String(64), ForeignKey("merchants.id"), nullable=False)
+    settlement_date = Column(String(20), nullable=False)  # YYYY-MM-DD
+    
+    # Deterministic integer minor units (paise) - never floats
+    gross_sales = Column(Integer, default=0, nullable=False)
+    refunds = Column(Integer, default=0, nullable=False)
+    fees = Column(Integer, default=0, nullable=False)
+    chargebacks = Column(Integer, default=0, nullable=False)
+    net_expected = Column(Integer, default=0, nullable=False)
+    net_settled = Column(Integer, default=0, nullable=False)
+    discrepancy = Column(Integer, default=0, nullable=False)
+    
+    status = Column(String(50), default="RECONCILED", nullable=False)  # RECONCILED | DISCREPANCY | DISPUTED
+    bank_utr = Column(String(100), nullable=True)
+    nodal_account = Column(String(100), default="ICICI_NODAL_0192", nullable=True)
+    dispute_case_id = Column(String(64), nullable=True)
+    evidence_attached = Column(Text, nullable=True)
+    
+    is_synthetic = Column(Boolean, default=True, nullable=False)
+    environment = Column(String(32), default="DEMO", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant", back_populates="settlements")

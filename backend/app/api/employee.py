@@ -146,6 +146,9 @@ def get_cases(
                 bucket=t.bucket.value if hasattr(t.bucket, "value") else str(t.bucket),
                 priority=t.priority,
                 assigned_to=t.assigned_to,
+                evidence_notes=getattr(t, "evidence_notes", None),
+                evidence_url=getattr(t, "evidence_url", None),
+                dispute_amount_formatted=f"₹{t.dispute_amount / 100:,.2f}" if getattr(t, "dispute_amount", None) else None,
                 approval=appr_summary,
                 created_at=t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else "",
                 updated_at=t.updated_at.strftime("%Y-%m-%d %H:%M:%S") if t.updated_at else "",
@@ -182,10 +185,12 @@ def get_case_timeline(
     events_query = (
         db.query(AuditEvent)
         .filter(or_(*filters))
-        .order_by(AuditEvent.created_at.asc())
+        .order_by(AuditEvent.created_at.desc())
         .limit(25)
         .all()
     )
+    # Reverse so timeline renders chronologically
+    events_query = list(reversed(events_query))
 
     # If no specific audit events yet for this exact case ID, fallback to general system audit events for this merchant's session
     if not events_query:

@@ -10,6 +10,8 @@ class DashboardKPISummary(BaseModel):
     total_transactions_paise: int
     total_transactions_formatted: str
     total_tasks: int
+    total_vasooli_recovered_paise: Optional[int] = 0
+    total_vasooli_recovered_formatted: Optional[str] = "₹0.00"
 
 class AuditEventItem(BaseModel):
     id: str

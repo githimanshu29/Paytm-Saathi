@@ -155,7 +155,10 @@ def get_merchant_summary(
     )
 
     total_dues_paise = sum(
-        rec.amount for rec, _ in receivables if rec.status.upper() != "PAID"
+        rec.amount - rec.paid_amount for rec, _ in receivables if rec.status.upper() != "PAID"
+    )
+    total_recovered_paise = sum(
+        rec.paid_amount for rec, _ in receivables
     )
     pending_dues_count = sum(
         1 for rec, _ in receivables if rec.status.upper() != "PAID"
@@ -176,6 +179,8 @@ def get_merchant_summary(
     dues_summary = DuesSummary(
         total_dues_paise=total_dues_paise,
         total_dues_formatted=format_paise_to_inr(total_dues_paise),
+        total_recovered_paise=total_recovered_paise,
+        total_recovered_formatted=format_paise_to_inr(total_recovered_paise),
         pending_count=pending_dues_count,
         chip_status="awaiting_approval" if pending_dues_count > 0 else "verified",
         receivables=rec_items,
@@ -226,7 +231,11 @@ def send_chat_message(
     )
 
     approval_card_data = None
-    if result.get("approval_card"):
+    vasooli_card_data = result.get("vasooli_card")
+    if result.get("agent") == "VASOOLI" and not vasooli_card_data:
+        vasooli_card_data = result.get("approval_card")
+
+    if result.get("approval_card") and result.get("agent") != "VASOOLI":
         approval_card_data = ApprovalCardData(**result["approval_card"])
 
     return ChatMessageResponse(
@@ -247,6 +256,7 @@ def send_chat_message(
         breakdown_card=result.get("breakdown_card"),
         checkin_card=result.get("checkin_card"),
         missing_item_card=result.get("missing_item_card"),
+        vasooli_card=vasooli_card_data,
         checklist=result.get("checklist"),
         verification_result=result.get("verification_result"),
         settlement_date=result.get("settlement_date"),
@@ -291,7 +301,11 @@ def send_voice_chat(
     )
 
     approval_card_data = None
-    if result.get("approval_card"):
+    vasooli_card_data = result.get("vasooli_card")
+    if result.get("agent") == "VASOOLI" and not vasooli_card_data:
+        vasooli_card_data = result.get("approval_card")
+
+    if result.get("approval_card") and result.get("agent") != "VASOOLI":
         approval_card_data = ApprovalCardData(**result["approval_card"])
 
     return ChatMessageResponse(
@@ -312,6 +326,7 @@ def send_voice_chat(
         breakdown_card=result.get("breakdown_card"),
         checkin_card=result.get("checkin_card"),
         missing_item_card=result.get("missing_item_card"),
+        vasooli_card=vasooli_card_data,
         checklist=result.get("checklist"),
         verification_result=result.get("verification_result"),
         settlement_date=result.get("settlement_date"),

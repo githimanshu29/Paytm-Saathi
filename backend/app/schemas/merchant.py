@@ -39,6 +39,8 @@ class ReceivableItem(BaseModel):
 class DuesSummary(BaseModel):
     total_dues_paise: int
     total_dues_formatted: str
+    total_recovered_paise: int = 0
+    total_recovered_formatted: str = "₹0.00"
     pending_count: int
     chip_status: str
     receivables: List[ReceivableItem] = Field(default_factory=list)
@@ -75,6 +77,14 @@ class ApprovalCardData(BaseModel):
     reason: str
     note: str
     status: str
+    receivable_id: Optional[str] = None
+    customer_phone: Optional[str] = None
+    amount_formatted: Optional[str] = None
+    draft_message_hi: Optional[str] = None
+    payment_link_url: Optional[str] = None
+    can_send: Optional[bool] = True
+    refusal_reason: Optional[str] = None
+    reminder_count: Optional[int] = 0
 
 class ChatMessageResponse(BaseModel):
     reply: str
@@ -94,6 +104,7 @@ class ChatMessageResponse(BaseModel):
     breakdown_card: Optional[Dict[str, Any]] = None
     checkin_card: Optional[Dict[str, Any]] = None
     missing_item_card: Optional[Dict[str, Any]] = None
+    vasooli_card: Optional[Dict[str, Any]] = None
     checklist: Optional[Dict[str, Any]] = None
     verification_result: Optional[Dict[str, Any]] = None
     settlement_date: Optional[str] = None

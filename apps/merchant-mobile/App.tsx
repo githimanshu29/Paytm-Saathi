@@ -78,9 +78,26 @@ interface ReceivableItem {
 interface DuesSummary {
   total_dues_paise: number;
   total_dues_formatted: string;
+  total_recovered_paise?: number;
+  total_recovered_formatted?: string;
   pending_count: number;
   chip_status: StatusType;
   receivables: ReceivableItem[];
+}
+
+interface VasooliApprovalCardData {
+  type?: string;
+  approval_id?: string;
+  receivable_id: string;
+  customer_name: string;
+  customer_phone?: string;
+  amount_formatted: string;
+  draft_message_hi: string;
+  payment_link_url?: string;
+  status: string;
+  can_send: boolean;
+  refusal_reason?: string;
+  reminder_count?: number;
 }
 
 interface MerchantSummary {
@@ -212,6 +229,7 @@ interface ChatMessage {
   breakdown_card?: SettlementBreakdownCardData | null;
   checkin_card?: ReviveCheckinCardData | null;
   missing_item_card?: MissingItemCardData | null;
+  vasooli_card?: VasooliApprovalCardData | null;
   settlement_date?: string;
   approval_decided?: 'APPROVED' | 'REJECTED';
   checkin_decided?: 'ACCEPTED' | 'DISMISSED';
@@ -254,6 +272,7 @@ export default function App() {
   const [chatSending, setChatSending] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [approvalSubmittingId, setApprovalSubmittingId] = useState<string | null>(null);
+  const [vasooliSendingId, setVasooliSendingId] = useState<string | null>(null);
   const [demoToggleLoading, setDemoToggleLoading] = useState(false);
   const [activeCheckin, setActiveCheckin] = useState<ReviveCheckinCardData | null>(null);
   const [checkinResponding, setCheckinResponding] = useState(false);
@@ -575,6 +594,7 @@ export default function App() {
         breakdown_card: data.breakdown_card,
         checkin_card: data.checkin_card,
         missing_item_card: data.missing_item_card,
+        vasooli_card: data.vasooli_card,
         settlement_date: data.settlement_date,
         speech_audio_base64: data.speech_audio_base64,
         speech_duration_seconds: data.speech_duration_seconds,
@@ -673,6 +693,36 @@ export default function App() {
     } catch (_e) {
     } finally {
       setCheckinResponding(false);
+    }
+  };
+
+  // Merchant Authorizes and Sends Vasooli Udhaar Reminder
+  const handleSendVasooliReminder = async (receivableId: string, messageId: string) => {
+    if (!token) return;
+    try {
+      setVasooliSendingId(receivableId);
+      const res = await fetch(`${API_BASE_URL}/merchant/vasooli/send-reminder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ receivable_id: receivableId }),
+      });
+      if (res.ok) {
+        setChatMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.vasooli_card
+              ? { ...m, vasooli_card: { ...m.vasooli_card, status: 'SENT' } }
+              : m
+          )
+        );
+        fetchSummary();
+      }
+    } catch (e) {
+      console.error('Send reminder failed', e);
+    } finally {
+      setVasooliSendingId(null);
     }
   };
 
@@ -1110,32 +1160,75 @@ export default function App() {
                 />
               </View>
 
-              <Text style={[styles.collectionsBigAmount, { color: colors.warning }]}>
-                {summary?.dues.total_dues_formatted || '₹850.00'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginVertical: 6 }}>
+                <View>
+                  <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '700' }}>TOTAL OUTSTANDING</Text>
+                  <Text style={[styles.collectionsBigAmount, { color: colors.warning }]}>
+                    {summary?.dues.total_dues_formatted || '₹850.00'}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 10, color: colors.success, fontWeight: '700' }}>TOTAL RECOVERED</Text>
+                  <Text style={[styles.collectionsBigAmount, { color: colors.success }]}>
+                    {summary?.dues.total_recovered_formatted || '₹650.00'}
+                  </Text>
+                </View>
+              </View>
 
               {/* Dues List */}
               <View style={styles.txListContainer}>
-                {(summary?.dues.receivables || []).map((rec) => (
-                  <View key={rec.id} style={styles.txRow}>
-                    <View style={[styles.txIconCircle, { backgroundColor: '#FEF5EC' }]}>
-                      <Text style={[styles.txIconText, { color: colors.warning }]}>📒</Text>
+                {(summary?.dues.receivables || []).map((rec) => {
+                  const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
+                  const isDisputed = (rec as any).is_disputed;
+                  return (
+                    <View key={rec.id} style={styles.txRow}>
+                      <View style={[styles.txIconCircle, { backgroundColor: '#FEF5EC' }]}>
+                        <Text style={[styles.txIconText, { color: colors.warning }]}>📒</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.txCustomerName}>{rec.customer_name}</Text>
+                        <Text style={styles.txMetaText}>
+                          Due: {rec.due_date || '7 days'} · Consensual Udhaar
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.txAmountText, { color: isPaid ? colors.success : colors.warning }]}>
+                          {rec.amount_formatted}
+                        </Text>
+                        <StatusChipNative
+                          status={
+                            isPaid
+                              ? 'executed'
+                              : isDisputed
+                              ? 'needs_human'
+                              : 'awaiting_approval'
+                          }
+                          size="sm"
+                          label={
+                            isPaid
+                              ? 'Paid'
+                              : isDisputed
+                              ? 'Disputed'
+                              : 'Pending'
+                          }
+                        />
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.txCustomerName}>{rec.customer_name}</Text>
-                      <Text style={styles.txMetaText}>
-                        Due: {rec.due_date} · Consensual Udhaar
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[styles.txAmountText, { color: colors.warning }]}>
-                        {rec.amount_formatted}
-                      </Text>
-                      <StatusChipNative status="awaiting_approval" size="sm" label="Pending" />
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
+
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: '#EFF6FF', borderRadius: 8, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: '#BFDBFE' }}
+                onPress={() => {
+                  setActiveTab('CHAT');
+                  handleSendMessage('Record udhaar of ₹250 for Vikram Singh');
+                }}
+              >
+                <Text style={{ color: '#1D4ED8', fontSize: 12, fontWeight: '700' }}>
+                  + Record Udhaar / Send Polite Reminder
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Pull-to-refresh tip */}
@@ -1188,6 +1281,30 @@ export default function App() {
           {/* Scenario Quick-Test Chips */}
           <View style={styles.quickChipsBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsScroll}>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Record udhaar of ₹250 for Vikram Singh')}
+              >
+                <Text style={styles.quickChipText}>📒 Record Udhaar ₹250 (Vasooli)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Remind Vikram Singh about pending payment')}
+              >
+                <Text style={styles.quickChipText}>📤 Remind Vikram Singh (Consensual)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Send reminder to Sunita Devi')}
+              >
+                <Text style={styles.quickChipText}>🛑 Remind Sunita Devi (Revoked Consent)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickChip}
+                onPress={() => handleSendMessage('Remind Manish Gupta about udhaar')}
+              >
+                <Text style={styles.quickChipText}>⚖️ Remind Manish Gupta (Disputed)</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.quickChip}
                 onPress={() => handleSendMessage('What documents are missing for my KYC onboarding?')}
@@ -1633,6 +1750,96 @@ export default function App() {
                               <Text style={styles.missingItemActionBtnText}>
                                 📸 Open Camera & Upload {msg.missing_item_card.document_type?.replace('_', ' ') || 'Document'}
                               </Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Inline Vasooli Store Credit Reminder Card */}
+                    {isSaathi && msg.vasooli_card && (
+                      <View style={styles.approvalCardContainer}>
+                        <View style={styles.approvalCardHeader}>
+                          <Text style={styles.approvalCardTitle}>
+                            📒 Udhaar: {msg.vasooli_card.customer_name}
+                          </Text>
+                          <StatusChipNative
+                            status={
+                              msg.vasooli_card.status === 'SENT'
+                                ? 'executed'
+                                : msg.vasooli_card.can_send === false
+                                ? 'needs_human'
+                                : 'awaiting_approval'
+                            }
+                            size="sm"
+                            label={
+                              msg.vasooli_card.status === 'SENT'
+                                ? 'Sent'
+                                : msg.vasooli_card.can_send === false
+                                ? 'Refused'
+                                : 'Approval Required'
+                            }
+                          />
+                        </View>
+
+                        <Text style={[styles.collectionsBigAmount, { fontSize: 20, color: colors.warning, marginVertical: 4 }]}>
+                          Pending: {msg.vasooli_card.amount_formatted}
+                        </Text>
+
+                        {/* Draft Message Preview */}
+                        <View style={styles.approvalNoteBox}>
+                          <Text style={[styles.approvalNoteText, { color: '#002E6E', fontWeight: '700', marginBottom: 2 }]}>
+                            Drafted Respectful Notice (SMS/WhatsApp):
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#334155', fontStyle: 'italic', lineHeight: 18 }}>
+                            "{msg.vasooli_card.draft_message_hi}"
+                          </Text>
+                          {msg.vasooli_card.payment_link_url && (
+                            <Text style={{ fontSize: 11, color: '#0284C7', marginTop: 4, fontWeight: '600' }}>
+                              🔗 Payment Link: {msg.vasooli_card.payment_link_url}
+                            </Text>
+                          )}
+                        </View>
+
+                        {/* Anti-Coercion Policy Banner */}
+                        <View style={[styles.approvalNoteBox, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
+                          <Text style={[styles.approvalNoteText, { color: '#166534' }]}>
+                            🛡 Respectful Kirana Notice: Consensual udhaar only. Legal threats, police language, or shaming are strictly prohibited by system policy.
+                          </Text>
+                        </View>
+
+                        {/* Decision / Action Row */}
+                        {msg.vasooli_card.can_send === false ? (
+                          <View style={{ backgroundColor: '#FEF2F2', padding: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginTop: 6 }}>
+                            <Text style={{ color: '#991B1B', fontSize: 11, fontWeight: '700' }}>
+                              ⚠️ Outreach Prohibited: {msg.vasooli_card.refusal_reason}
+                            </Text>
+                          </View>
+                        ) : msg.vasooli_card.status === 'SENT' ? (
+                          <View style={styles.approvalDecidedBanner}>
+                            <Text style={styles.approvalDecidedText}>
+                              ✓ Respectful reminder sent via SMS/WhatsApp. Auto-stop active on UPI arrival.
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.approvalActionRow}>
+                            <TouchableOpacity
+                              style={[
+                                styles.approvalApproveBtn,
+                                vasooliSendingId === msg.vasooli_card.receivable_id && styles.buttonDisabled,
+                              ]}
+                              disabled={vasooliSendingId === msg.vasooli_card.receivable_id}
+                              onPress={() =>
+                                handleSendVasooliReminder(msg.vasooli_card!.receivable_id, msg.id)
+                              }
+                            >
+                              {vasooliSendingId === msg.vasooli_card.receivable_id ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                              ) : (
+                                <Text style={styles.approvalApproveBtnText}>
+                                  📤 Approve & Send Reminder
+                                </Text>
+                              )}
                             </TouchableOpacity>
                           </View>
                         )}

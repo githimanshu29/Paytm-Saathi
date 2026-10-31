@@ -52,6 +52,20 @@ from app.adapters.fieldmate import (
     ConcurrencyConflictError,
     RepPolicyViolationError,
 )
+from app.adapters.vasooli import (
+    IVasooliAdapter,
+    MockVasooliAdapter,
+    CustomerRecord,
+    ReceivableRecord,
+    ReminderDraftResult,
+    ReminderSendResult,
+    InstallmentSplitProposal,
+    PaymentEventVerificationResult,
+    VasooliSummaryRecord,
+    CoerciveCollectionError,
+    CommunicationPermissionRevokedError,
+    ReceivableDisputedError,
+)
 
 __all__ = [
     "ITransactionAdapter",
@@ -94,4 +108,16 @@ __all__ = [
     "ManagerRepSummary",
     "ConcurrencyConflictError",
     "RepPolicyViolationError",
+    "IVasooliAdapter",
+    "MockVasooliAdapter",
+    "CustomerRecord",
+    "ReceivableRecord",
+    "ReminderDraftResult",
+    "ReminderSendResult",
+    "InstallmentSplitProposal",
+    "PaymentEventVerificationResult",
+    "VasooliSummaryRecord",
+    "CoerciveCollectionError",
+    "CommunicationPermissionRevokedError",
+    "ReceivableDisputedError",
 ]

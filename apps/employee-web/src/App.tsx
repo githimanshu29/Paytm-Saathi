@@ -60,6 +60,41 @@ interface DashboardKPI {
   total_transactions_paise: number;
   total_transactions_formatted: string;
   total_tasks: number;
+  total_vasooli_recovered_paise?: number;
+  total_vasooli_recovered_formatted?: string;
+}
+
+interface ReceivableDetail {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string;
+  amount_paise: number;
+  amount_formatted: string;
+  paid_amount_formatted: string;
+  status: string;
+  settlement_verification_status: string;
+  is_disputed: boolean;
+  dispute_reason?: string;
+  contact_permission: boolean;
+  permission_status: string;
+  reminder_count: number;
+  last_reminder_sent_at?: string;
+  payment_reference?: string;
+  payment_link_url?: string;
+  negotiated_installments?: any;
+}
+
+interface VasooliOverview {
+  merchant_id: string;
+  total_receivables_count: number;
+  total_outstanding_paise: number;
+  total_outstanding_formatted: string;
+  total_recovered_paise: number;
+  total_recovered_formatted: string;
+  disputed_count: number;
+  revoked_permission_count: number;
+  receivables: ReceivableDetail[];
 }
 
 interface AuditEvent {
@@ -327,6 +362,12 @@ export function App() {
   const [managerSummary, setManagerSummary] = useState<ManagerRepSummaryData | null>(null);
   const [managerSummaryLoading, setManagerSummaryLoading] = useState(false);
   const [fieldViewMode, setFieldViewMode] = useState<'rep' | 'manager'>('rep');
+
+  // Vasooli state
+  const [vasooliOverview, setVasooliOverview] = useState<VasooliOverview | null>(null);
+  const [vasooliLoading, setVasooliLoading] = useState(false);
+  const [simulatingPaymentId, setSimulatingPaymentId] = useState<string | null>(null);
+  const [vasooliNotice, setVasooliNotice] = useState<string | null>(null);
 
   // Navigation tab state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -602,6 +643,54 @@ export function App() {
     }
   };
 
+  // Fetch Vasooli Receivables Overview
+  const fetchVasooliOverview = useCallback(async () => {
+    if (!token) return;
+    try {
+      setVasooliLoading(true);
+      const res = await fetch(`${API_BASE_URL}/employee/vasooli/overview`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVasooliOverview(data);
+      }
+    } catch (_e) {
+    } finally {
+      setVasooliLoading(false);
+    }
+  }, [token]);
+
+  // Simulate Customer Payment Arrival (Tests Auto-Stop and Cancellation Invariant)
+  const handleSimulatePayment = async (receivableId: string) => {
+    if (!token) return;
+    try {
+      setSimulatingPaymentId(receivableId);
+      const res = await fetch(`${API_BASE_URL}/demo/vasooli/payment-event`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          receivable_id: receivableId,
+          payment_reference: `UPI-AUTO-STOP-${Date.now().toString().slice(-4)}`,
+        }),
+      });
+      if (res.ok) {
+        setVasooliNotice('Payment arrived! Reminders auto-stopped and pending approvals cancelled.');
+        await fetchVasooliOverview();
+        await fetchAuditLog();
+        await fetchKPI();
+        setTimeout(() => setVasooliNotice(null), 5000);
+      }
+    } catch (e) {
+      console.error('Simulate payment failed', e);
+    } finally {
+      setSimulatingPaymentId(null);
+    }
+  };
+
   // Initial and Polling fetch
   useEffect(() => {
     if (!token) return;
@@ -621,13 +710,14 @@ export function App() {
       fetchCases();
       fetchReviveData();
       fetchPipeline();
+      fetchVasooliOverview();
     }, 8000);
 
     return () => {
       clearInterval(auditInterval);
       clearInterval(dataInterval);
     };
-  }, [token, fetchKPI, fetchAuditLog, fetchCases, fetchReviveData, fetchPipeline]);
+  }, [token, fetchKPI, fetchAuditLog, fetchCases, fetchReviveData, fetchPipeline, fetchVasooliOverview]);
 
   // Fetch pipeline when switching to onboard tab
   useEffect(() => {
@@ -643,6 +733,13 @@ export function App() {
       fetchManagerSummary();
     }
   }, [token, activeTab, fetchFieldRoute, fetchManagerSummary]);
+
+  // Fetch Vasooli overview when switching to vasooli tab
+  useEffect(() => {
+    if (token && activeTab === 'vasooli') {
+      fetchVasooliOverview();
+    }
+  }, [token, activeTab, fetchVasooliOverview]);
 
   // Fetch timeline when a case is selected for slide-over
   useEffect(() => {
@@ -929,6 +1026,15 @@ export function App() {
         c.title.toLowerCase().includes('sales');
       if (bucketFilter === 'ALL') return isRevive;
       return isRevive && c.bucket === bucketFilter;
+    }
+    if (activeTab === 'vasooli') {
+      const isVasooli =
+        c.title.toLowerCase().includes('udhaar') ||
+        c.title.toLowerCase().includes('receivable') ||
+        c.title.toLowerCase().includes('reminder') ||
+        c.title.toLowerCase().includes('vasooli');
+      if (bucketFilter === 'ALL') return isVasooli;
+      return isVasooli && c.bucket === bucketFilter;
     }
     if (bucketFilter === 'ALL') return true;
     return c.bucket === bucketFilter;
@@ -2380,6 +2486,240 @@ export function App() {
                 </div>
               )}
             </div>
+          ) : activeTab === 'vasooli' ? (
+            /* VASOOLI RECEIVABLES & CONSENSUAL STORE CREDIT WORKSPACE */
+            <div className="space-y-6">
+              {/* Header Banner */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-[#1A1A1A]">Vasooli Consensual Udhaar & Receivables</h2>
+                  <p className="text-sm text-[#6B7280] mt-1">
+                    Respectful store credit reminders, customer communication consent checks, and instant payment auto-cancellation
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Strict Anti-Coercion Policy Active</span>
+                  </span>
+                  <button
+                    onClick={fetchVasooliOverview}
+                    disabled={vasooliLoading}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-[#002E6E] bg-white border border-[#E5E7EB] hover:bg-gray-50 rounded-lg shadow-sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${vasooliLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Real-time Toast/Notice */}
+              {vasooliNotice && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium flex items-center space-x-2 animate-fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{vasooliNotice}</span>
+                </div>
+              )}
+
+              {/* 1. KPI CARD ROW */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Total Outstanding</p>
+                  <p className="text-2xl font-extrabold text-[#F2994A] mt-2">
+                    {vasooliOverview?.total_outstanding_formatted ?? '₹4,200.00'}
+                  </p>
+                  <p className="text-xs text-[#6B7280] mt-1 font-medium">Pending Store Credit</p>
+                </div>
+
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Total Recovered</p>
+                  <p className="text-2xl font-extrabold text-[#0B8457] mt-2">
+                    {vasooliOverview?.total_recovered_formatted ?? '₹650.00'}
+                  </p>
+                  <p className="text-xs text-[#0B8457] mt-1 font-medium">Authoritatively Verified</p>
+                </div>
+
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Consensual Customers</p>
+                  <p className="text-2xl font-extrabold text-[#002E6E] mt-2">
+                    {vasooliOverview?.total_receivables_count ?? 5}
+                  </p>
+                  <p className="text-xs text-[#00BAF2] mt-1 font-medium">Recorded Khata Ledger</p>
+                </div>
+
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Disputes Paused</p>
+                  <p className="text-2xl font-extrabold text-[#EB5757] mt-2">
+                    {vasooliOverview?.disputed_count ?? 1}
+                  </p>
+                  <p className="text-xs text-[#EB5757] mt-1 font-medium">Outreach Blocked</p>
+                </div>
+
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Revoked Permissions</p>
+                  <p className="text-2xl font-extrabold text-[#EB5757] mt-2">
+                    {vasooliOverview?.revoked_permission_count ?? 1}
+                  </p>
+                  <p className="text-xs text-[#EB5757] mt-1 font-medium">Zero Contact Mandate</p>
+                </div>
+              </div>
+
+              {/* 2. RECEIVABLES TABLE */}
+              <div className="bg-white rounded-card shadow-soft border border-[#E5E7EB] overflow-hidden">
+                <div className="p-4 border-b border-[#E5E7EB] flex items-center justify-between bg-gray-50/50">
+                  <div className="flex items-center space-x-2">
+                    <Coins className="w-4 h-4 text-[#00BAF2]" />
+                    <h3 className="font-bold text-sm text-[#002E6E]">Consensual Receivables Ledger</h3>
+                    <span className="text-xs text-gray-500 font-mono">(Store: mer_sharma_kirana)</span>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    Max 3 polite reminders allowed per receivable
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-gray-600">
+                    <thead className="bg-gray-50 border-b border-[#E5E7EB] text-[#6B7280] uppercase tracking-wider text-[10px] font-bold">
+                      <tr>
+                        <th className="py-3 px-4">Customer</th>
+                        <th className="py-3 px-3">Due / Paid</th>
+                        <th className="py-3 px-3">Consent Status</th>
+                        <th className="py-3 px-3">Dispute Flag</th>
+                        <th className="py-3 px-3 text-center">Reminders Sent</th>
+                        <th className="py-3 px-3 text-center">Lifecycle Status</th>
+                        <th className="py-3 px-4 text-right">Settlement Simulation</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E5E7EB]">
+                      {(vasooliOverview?.receivables || []).map((rec) => {
+                        const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
+                        const isDisputed = rec.is_disputed;
+                        const isRevoked = !rec.contact_permission || rec.permission_status === 'REVOKED';
+
+                        return (
+                          <tr key={rec.id} className="hover:bg-gray-50/60 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <p className="font-bold text-gray-900">{rec.customer_name}</p>
+                              <p className="text-[11px] text-gray-500 font-mono">{rec.customer_phone}</p>
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              <p className="font-bold text-gray-900">{rec.amount_formatted}</p>
+                              {isPaid && (
+                                <p className="text-[11px] text-emerald-600 font-medium">
+                                  Paid: {rec.paid_amount_formatted}
+                                </p>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              {isRevoked ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200">
+                                  REVOKED (No Contact)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  ALLOWED
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3">
+                              {isDisputed ? (
+                                <div>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                    DISPUTED
+                                  </span>
+                                  {rec.dispute_reason && (
+                                    <p className="text-[10px] text-amber-700 mt-0.5 max-w-xs truncate">
+                                      {rec.dispute_reason}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-gray-400">Clear</span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3 text-center">
+                              <span className="font-mono font-bold text-gray-700">
+                                {rec.reminder_count} / 3
+                              </span>
+                              {rec.last_reminder_sent_at && (
+                                <p className="text-[10px] text-gray-400">
+                                  {new Date(rec.last_reminder_sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-3 text-center">
+                              {isPaid ? (
+                                <StatusChip status="executed" label="VERIFIED_PAID" />
+                              ) : isDisputed ? (
+                                <StatusChip status="needs_human" label="PAUSED" />
+                              ) : isRevoked ? (
+                                <StatusChip status="needs_human" label="REFUSED" />
+                              ) : (
+                                <StatusChip status="awaiting_approval" label="PENDING" />
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-4 text-right">
+                              {isPaid ? (
+                                <span className="text-emerald-700 text-[11px] font-medium flex items-center justify-end space-x-1">
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Auto-Stopped</span>
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleSimulatePayment(rec.id)}
+                                  disabled={simulatingPaymentId === rec.id}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                                >
+                                  {simulatingPaymentId === rec.id ? (
+                                    'Simulating...'
+                                  ) : (
+                                    '⚡ Simulate Payment Received'
+                                  )}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 3. CORE PROTOCOL & GOVERNANCE INVARIANTS CARD */}
+              <div className="bg-blue-50/50 border border-blue-100 rounded-card p-5 space-y-3">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-[#002E6E] flex items-center space-x-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#00BAF2]" />
+                  <span>Vasooli Governance & Safety Invariants</span>
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-[#002E6E]">
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <p className="font-bold text-gray-900 mb-1">1. Respectful Reminders Only</p>
+                    <p className="text-gray-600 text-[11px]">
+                      Coercive words ("police", "jail", "legal notice", "defaulter", "family") are strictly blocked at the tool layer with <code className="bg-gray-100 px-1 py-0.5 rounded text-[10px]">R4_COERCIVE_COLLECTION_BLOCKED</code>.
+                    </p>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <p className="font-bold text-gray-900 mb-1">2. Consent & Dispute Refusal</p>
+                    <p className="text-gray-600 text-[11px]">
+                      Outreach is visibly refused if a customer has revoked contact consent (<code className="bg-gray-100 px-1 py-0.5 rounded text-[10px]">contact_permission=False</code>) or if the transaction is disputed (<code className="bg-gray-100 px-1 py-0.5 rounded text-[10px]">is_disputed=True</code>).
+                    </p>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border border-blue-100">
+                    <p className="font-bold text-gray-900 mb-1">3. Authoritative Settlement Auto-Stop</p>
+                    <p className="text-gray-600 text-[11px]">
+                      The instant an authoritative payment arrives (via UPI webhook), all pending approvals are auto-cancelled and reminder attempts cease immediately.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
             /* DEFAULT CONTROL TOWER WORKSPACE */
             <>
@@ -2398,7 +2738,7 @@ export function App() {
               </div>
 
               {/* 1. KPI CARD ROW */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                 <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
                   <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">Kiranas Monitored</p>
                   <p className="text-2xl font-extrabold text-[#002E6E] mt-2">
@@ -2437,6 +2777,14 @@ export function App() {
                     {kpi?.total_transactions_formatted ?? '₹600.00'}
                   </p>
                   <p className="text-xs text-[#00BAF2] mt-1 font-medium">Reconciled UPI</p>
+                </div>
+
+                <div className="bg-white rounded-card p-5 shadow-soft border border-[#E5E7EB]">
+                  <p className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">₹ Recovered (Udhaar)</p>
+                  <p className="text-2xl font-extrabold text-[#0B8457] mt-2">
+                    {kpi?.total_vasooli_recovered_formatted ?? '₹650.00'}
+                  </p>
+                  <p className="text-xs text-[#0B8457] mt-1 font-medium">Vasooli Auto-Stop</p>
                 </div>
               </div>
 

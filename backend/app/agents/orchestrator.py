@@ -7,6 +7,7 @@ from app.agents.reconcile import ReconcileAgent
 from app.agents.revive import ReviveAgent
 from app.agents.onboard import OnboardAgent
 from app.agents.fieldmate import FieldMateAgent
+from app.agents.vasooli import VasooliAgent
 from app.adapters.speech import MockSpeechAdapter
 from app.policy.audit import audit_log
 
@@ -29,6 +30,7 @@ class SaathiBrainOrchestrator:
         self.revive_agent = ReviveAgent(db)
         self.onboard_agent = OnboardAgent(db)
         self.fieldmate_agent = FieldMateAgent(db)
+        self.vasooli_agent = VasooliAgent(db)
         self.speech_adapter = MockSpeechAdapter()
 
     def route_and_run(
@@ -181,6 +183,31 @@ class SaathiBrainOrchestrator:
         ]
         is_fieldmate_intent = any(k in query_clean for k in fieldmate_keywords)
 
+        # 7. Vasooli / Udhaar / Store Credit Keywords -> Vasooli Agent
+        vasooli_keywords = [
+            "udhaar",
+            "khata",
+            "receivable",
+            "receivables",
+            "vasooli",
+            "credit ledger",
+            "store credit",
+            "remind customer",
+            "payment reminder",
+            "reminder",
+            "bought on credit",
+            "bought on udhaar",
+            "record udhaar",
+            "add udhaar",
+            "split payment",
+            "installment",
+            "vikram",
+            "sunita",
+            "manish",
+            "pending balance",
+        ]
+        is_vasooli_intent = any(k in query_clean for k in vasooli_keywords) and not is_settlement_intent
+
         # Priority routing
         # Priority 0: FieldMate / Sales Rep intent
         if is_fieldmate_intent:
@@ -200,6 +227,26 @@ class SaathiBrainOrchestrator:
                 "action_card": None,
                 "breakdown_card": None,
                 "approval_card": None,
+                "speech_audio_base64": speech_res.audio_base64,
+                "speech_duration_seconds": speech_res.duration_seconds,
+            }
+
+        # Priority 0.5: Vasooli Udhaar intent
+        if is_vasooli_intent:
+            vas_res = self.vasooli_agent.run(
+                query_text=query_text,
+                merchant_id=merchant_id,
+                actor_id=actor_id,
+            )
+            speech_res = self.speech_adapter.synthesize(vas_res["agent_reply"], language="hi-IN")
+            return {
+                "agent": "VASOOLI",
+                "reply": vas_res["agent_reply"],
+                "chip_status": vas_res["chip_status"],
+                "branch": vas_res.get("action_type", "PARSE_QUERY"),
+                "approval_card": vas_res.get("approval_card"),
+                "action_card": vas_res.get("action_card") or vas_res.get("approval_card"),
+                "breakdown_card": None,
                 "speech_audio_base64": speech_res.audio_base64,
                 "speech_duration_seconds": speech_res.duration_seconds,
             }

@@ -13,6 +13,7 @@ from app.db.models import (
     ActionApproval,
     ApprovalDecision,
     AuditEvent,
+    Receivable,
 )
 from app.api.auth import get_current_user
 from app.schemas.employee import (
@@ -60,6 +61,9 @@ def get_dashboard_summary(
     total_tx_paise = sum(tx.amount for tx in transactions)
     total_tasks = db.query(Task).count()
 
+    paid_recs = db.query(Receivable).filter(Receivable.status.in_(["PAID", "VERIFIED_PAID"])).all()
+    total_recovered_paise = sum(r.paid_amount or r.amount for r in paid_recs)
+
     return DashboardKPISummary(
         total_merchants=total_merchants,
         active_devices=active_devices,
@@ -69,6 +73,8 @@ def get_dashboard_summary(
         total_transactions_paise=total_tx_paise,
         total_transactions_formatted=format_paise_to_inr(total_tx_paise),
         total_tasks=total_tasks,
+        total_vasooli_recovered_paise=total_recovered_paise,
+        total_vasooli_recovered_formatted=format_paise_to_inr(total_recovered_paise),
     )
 
 @employee_router.get("/audit-log", response_model=AuditLogResponse)

@@ -239,7 +239,8 @@ def seed_demo_data():
                 )
             )
 
-            # Customer & Receivable (Udhaar)
+            # Customers & Receivables (Consensual Udhaar Ledger)
+            # 1. Normal Consensual Customer (Vikram Singh)
             c1 = Customer(
                 id="cust_vikram_singh",
                 tenant_id=tenant.id,
@@ -247,6 +248,9 @@ def seed_demo_data():
                 name="Vikram Singh",
                 phone="+919811122233",
                 notes="Regular neighbor customer, weekly milk & grains settlement",
+                contact_permission=True,
+                permission_status="ALLOWED",
+                permission_updated_at=now - timedelta(days=10),
                 is_synthetic=True,
                 environment="DEMO",
             )
@@ -263,6 +267,161 @@ def seed_demo_data():
                     due_date=now + timedelta(days=3),
                     status="PENDING",
                     notes="Aata bag and spices bought on credit",
+                    is_disputed=False,
+                    reminder_count=0,
+                    settlement_verification_status="UNSETTLED",
+                    payment_link_url="https://paytm.demo/pay/rec_sharma_001",
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
+            # 2. Disputed Customer (Manish Gupta) - Vasooli MUST refuse reminders
+            c2 = Customer(
+                id="cust_manish_gupta",
+                tenant_id=tenant.id,
+                merchant_id=m1.id,
+                name="Manish Gupta",
+                phone="+919822233344",
+                notes="Local chemist shop assistant",
+                contact_permission=True,
+                permission_status="ALLOWED",
+                permission_updated_at=now - timedelta(days=15),
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(c2)
+            db.flush()
+
+            db.add(
+                Receivable(
+                    id="rec_sharma_002_disputed",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    customer_id=c2.id,
+                    amount=120000,  # 1,200.00 INR
+                    due_date=now - timedelta(days=2),
+                    status="DISPUTED",
+                    notes="Basmati rice 2 bags on credit",
+                    is_disputed=True,
+                    dispute_reason="Customer claims 2 bags of basmati rice were never delivered by delivery boy on 2026-10-24.",
+                    reminder_count=0,
+                    settlement_verification_status="UNSETTLED",
+                    payment_link_url="https://paytm.demo/pay/rec_sharma_002",
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
+            # 3. Permission Revoked Customer (Sunita Devi) - Vasooli MUST refuse reminders
+            c3 = Customer(
+                id="cust_sunita_devi",
+                tenant_id=tenant.id,
+                merchant_id=m1.id,
+                name="Sunita Devi",
+                phone="+919833344455",
+                notes="Retired teacher in Block C",
+                contact_permission=False,
+                permission_status="REVOKED",
+                permission_updated_at=now - timedelta(days=5),
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(c3)
+            db.flush()
+
+            db.add(
+                Receivable(
+                    id="rec_sharma_003_revoked",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    customer_id=c3.id,
+                    amount=45000,  # 450.00 INR
+                    due_date=now - timedelta(days=5),
+                    status="PENDING",
+                    notes="Ghee and edible mustard oil purchase",
+                    is_disputed=False,
+                    reminder_count=0,
+                    settlement_verification_status="UNSETTLED",
+                    payment_link_url="https://paytm.demo/pay/rec_sharma_003",
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
+            # 4. Partial Payment / Split Candidate (Amit Shukla)
+            c4 = Customer(
+                id="cust_amit_shukla",
+                tenant_id=tenant.id,
+                merchant_id=m1.id,
+                name="Amit Shukla",
+                phone="+919844455566",
+                notes="Electrician, settles bi-weekly",
+                contact_permission=True,
+                permission_status="ALLOWED",
+                permission_updated_at=now - timedelta(days=20),
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(c4)
+            db.flush()
+
+            db.add(
+                Receivable(
+                    id="rec_sharma_004_split",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    customer_id=c4.id,
+                    amount=150000,  # 1,500.00 INR
+                    due_date=now + timedelta(days=1),
+                    status="PENDING",
+                    notes="Dry fruits and festive grocery hamper",
+                    is_disputed=False,
+                    reminder_count=1,
+                    last_reminder_sent_at=now - timedelta(days=2),
+                    paid_amount=0,
+                    settlement_verification_status="UNSETTLED",
+                    payment_link_url="https://paytm.demo/pay/rec_sharma_004",
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
+            )
+
+            # 5. Recovered & Verified Paid Customer (Deepak Patel)
+            c5 = Customer(
+                id="cust_deepak_patel",
+                tenant_id=tenant.id,
+                merchant_id=m1.id,
+                name="Deepak Patel",
+                phone="+919855566677",
+                notes="Stationery shop owner",
+                contact_permission=True,
+                permission_status="ALLOWED",
+                permission_updated_at=now - timedelta(days=30),
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(c5)
+            db.flush()
+
+            db.add(
+                Receivable(
+                    id="rec_sharma_005_paid",
+                    tenant_id=tenant.id,
+                    merchant_id=m1.id,
+                    customer_id=c5.id,
+                    amount=65000,  # 650.00 INR
+                    due_date=now - timedelta(days=1),
+                    status="PAID",
+                    notes="Milk crate and fresh paneer",
+                    is_disputed=False,
+                    reminder_count=1,
+                    last_reminder_sent_at=now - timedelta(hours=12),
+                    paid_amount=65000,
+                    settled_at=now - timedelta(hours=6),
+                    settlement_verification_status="VERIFIED_PAID",
+                    payment_reference="PAYTM_REC_UPI_9901823",
+                    payment_link_url="https://paytm.demo/pay/rec_sharma_005",
                     is_synthetic=True,
                     environment="DEMO",
                 )

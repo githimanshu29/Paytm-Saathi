@@ -173,6 +173,11 @@ class Customer(Base):
     phone = Column(String(20), nullable=False)
     notes = Column(Text, nullable=True)
     
+    # Consensual Communication Permission
+    contact_permission = Column(Boolean, default=True, nullable=False)
+    permission_status = Column(String(32), default="ALLOWED", nullable=False)  # ALLOWED | REVOKED | OPTED_OUT
+    permission_updated_at = Column(DateTime, nullable=True)
+
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -190,15 +195,28 @@ class Receivable(Base):
     # Stored in minor units (paise)
     amount = Column(Integer, nullable=False)
     due_date = Column(DateTime, nullable=True)
-    status = Column(String(50), default="PENDING", nullable=False)
+    status = Column(String(50), default="PENDING", nullable=False)  # PENDING | PARTIALLY_PAID | PAID | DISPUTED | CANCELLED
     notes = Column(Text, nullable=True)
     
+    # Vasooli Guardrails & Consensual Tracking
+    is_disputed = Column(Boolean, default=False, nullable=False)
+    dispute_reason = Column(Text, nullable=True)
+    reminder_count = Column(Integer, default=0, nullable=False)  # Capped at 3 attempts
+    last_reminder_sent_at = Column(DateTime, nullable=True)
+    paid_amount = Column(Integer, default=0, nullable=False)  # In minor units (paise)
+    settled_at = Column(DateTime, nullable=True)
+    settlement_verification_status = Column(String(50), default="UNSETTLED", nullable=False)  # UNSETTLED | PENDING_VERIFICATION | VERIFIED_PAID | MERCHANT_REPORTED_UNVERIFIED
+    payment_reference = Column(String(100), nullable=True)
+    payment_link_url = Column(String(255), nullable=True)
+    negotiated_installments = Column(Text, nullable=True)  # JSON installment plan if split negotiated
+
     is_synthetic = Column(Boolean, default=True, nullable=False)
     environment = Column(String(32), default="DEMO", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     merchant = relationship("Merchant", back_populates="receivables")
     customer = relationship("Customer", back_populates="receivables")
+    approvals = relationship("ActionApproval", back_populates="receivable")
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -230,6 +248,7 @@ class ActionApproval(Base):
     id = Column(String(64), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), ForeignKey("tenants.id"), nullable=False)
     task_id = Column(String(64), ForeignKey("tasks.id"), nullable=True)
+    receivable_id = Column(String(64), ForeignKey("receivables.id"), nullable=True)
     approver = Column(String(255), nullable=True)
     decision = Column(SQLEnum(ApprovalDecision), default=ApprovalDecision.PENDING, nullable=False)
     reason = Column(Text, nullable=True)
@@ -242,6 +261,7 @@ class ActionApproval(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     task = relationship("Task", back_populates="approvals")
+    receivable = relationship("Receivable", back_populates="approvals")
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"

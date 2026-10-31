@@ -1003,103 +1003,108 @@ def seed_demo_data():
         # Phase 7: Seeded Activity Metrics & Retention Follow-ups
         # -------------------------------------------------------------
         # (1) Gupta Electronics: Volume drop caused by OFFLINE device
-        db.add(
-            MerchantActivityMetric(
-                id="metric_gupta_dormancy",
-                tenant_id=tenant.id,
-                merchant_id="mer_gupta_electronics",
-                baseline_daily_tx_count=50,
-                baseline_daily_volume_paise=2000000,  # ₹20,000.00
-                recent_daily_tx_count=4,
-                recent_daily_volume_paise=160000,    # ₹1,600.00
-                drop_percentage=92,
-                health_status="AT_RISK",
-                diagnosed_cause="DEVICE_ISSUE",
-                revival_stage="AT_RISK",
-                last_scanned_at=now,
-                is_synthetic=True,
-                environment="DEMO",
+        if not db.query(MerchantActivityMetric).filter_by(id="metric_gupta_dormancy").first():
+            db.add(
+                MerchantActivityMetric(
+                    id="metric_gupta_dormancy",
+                    tenant_id=tenant.id,
+                    merchant_id="mer_gupta_electronics",
+                    baseline_daily_tx_count=50,
+                    baseline_daily_volume_paise=2000000,  # ₹20,000.00
+                    recent_daily_tx_count=4,
+                    recent_daily_volume_paise=160000,    # ₹1,600.00
+                    drop_percentage=92,
+                    health_status="AT_RISK",
+                    diagnosed_cause="DEVICE_ISSUE",
+                    revival_stage="AT_RISK",
+                    last_scanned_at=now,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
             )
-        )
 
         # (1b) Singh Automobiles: Volume drop caused by OFFLINE device (Primary candidate for Handoff Demo)
-        db.add(
-            MerchantActivityMetric(
-                id="metric_singh_dormancy",
-                tenant_id=tenant.id,
-                merchant_id="mer_singh_automobiles",
-                baseline_daily_tx_count=45,
-                baseline_daily_volume_paise=1800000,  # ₹18,000.00
-                recent_daily_tx_count=6,
-                recent_daily_volume_paise=240000,    # ₹2,400.00
-                drop_percentage=86,
-                health_status="AT_RISK",
-                diagnosed_cause="DEVICE_ISSUE",
-                revival_stage="AT_RISK",
-                last_scanned_at=now,
-                is_synthetic=True,
-                environment="DEMO",
+        if not db.query(MerchantActivityMetric).filter_by(id="metric_singh_dormancy").first():
+            db.add(
+                MerchantActivityMetric(
+                    id="metric_singh_dormancy",
+                    tenant_id=tenant.id,
+                    merchant_id="mer_singh_automobiles",
+                    baseline_daily_tx_count=45,
+                    baseline_daily_volume_paise=1800000,  # ₹18,000.00
+                    recent_daily_tx_count=6,
+                    recent_daily_volume_paise=240000,    # ₹2,400.00
+                    drop_percentage=86,
+                    health_status="AT_RISK",
+                    diagnosed_cause="DEVICE_ISSUE",
+                    revival_stage="AT_RISK",
+                    last_scanned_at=now,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
             )
-        )
 
         # (2) Verma Sweets: Volume drop caused by UNRESOLVED settlement discrepancy
-        db.add(
-            MerchantActivityMetric(
-                id="metric_verma_dormancy",
-                tenant_id=tenant.id,
-                merchant_id="mer_verma_sweets",
-                baseline_daily_tx_count=35,
-                baseline_daily_volume_paise=1200000,  # ₹12,000.00
-                recent_daily_tx_count=8,
-                recent_daily_volume_paise=250000,    # ₹2,500.00
-                drop_percentage=79,
-                health_status="AT_RISK",
-                diagnosed_cause="SETTLEMENT_ISSUE",
-                revival_stage="AT_RISK",
-                last_scanned_at=now,
-                is_synthetic=True,
-                environment="DEMO",
+        if not db.query(MerchantActivityMetric).filter_by(id="metric_verma_dormancy").first():
+            db.add(
+                MerchantActivityMetric(
+                    id="metric_verma_dormancy",
+                    tenant_id=tenant.id,
+                    merchant_id="mer_verma_sweets",
+                    baseline_daily_tx_count=35,
+                    baseline_daily_volume_paise=1200000,  # ₹12,000.00
+                    recent_daily_tx_count=8,
+                    recent_daily_volume_paise=250000,    # ₹2,500.00
+                    drop_percentage=79,
+                    health_status="AT_RISK",
+                    diagnosed_cause="SETTLEMENT_ISSUE",
+                    revival_stage="AT_RISK",
+                    last_scanned_at=now,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
             )
-        )
 
         # (3) Sharma Kirana: Non-technical drop (Hardware & Settlements healthy -> Competitor / Disengagement)
-        db.add(
-            MerchantActivityMetric(
-                id="metric_sharma_dormancy",
-                tenant_id=tenant.id,
-                merchant_id="mer_sharma_kirana",
-                baseline_daily_tx_count=30,
-                baseline_daily_volume_paise=950000,  # ₹9,500.00
-                recent_daily_tx_count=9,
-                recent_daily_volume_paise=285000,   # ₹2,850.00
-                drop_percentage=70,
-                health_status="AT_RISK",
-                diagnosed_cause="COMPETITOR_OR_DISENGAGEMENT",
-                revival_stage="FOLLOWUP_SENT",
-                last_scanned_at=now,
-                is_synthetic=True,
-                environment="DEMO",
+        if not db.query(MerchantActivityMetric).filter_by(id="metric_sharma_dormancy").first():
+            db.add(
+                MerchantActivityMetric(
+                    id="metric_sharma_dormancy",
+                    tenant_id=tenant.id,
+                    merchant_id="mer_sharma_kirana",
+                    baseline_daily_tx_count=30,
+                    baseline_daily_volume_paise=950000,  # ₹9,500.00
+                    recent_daily_tx_count=9,
+                    recent_daily_volume_paise=285000,   # ₹2,850.00
+                    drop_percentage=70,
+                    health_status="AT_RISK",
+                    diagnosed_cause="COMPETITOR_OR_DISENGAGEMENT",
+                    revival_stage="FOLLOWUP_SENT",
+                    last_scanned_at=now,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
             )
-        )
 
         # Active Follow-up delivered to Sharma Kirana
-        db.add(
-            MerchantFollowup(
-                id="fol_sharma_revive_01",
-                tenant_id=tenant.id,
-                merchant_id="mer_sharma_kirana",
-                cause_type="COMPETITOR_OR_DISENGAGEMENT",
-                message_title="Special Kirana Growth Offer from Paytm Saathi",
-                message_body="Namaste Sharma ji! We noticed a slowdown in your Soundbox announcements recently. To support your shop, we've unlocked the Kirana Booster: 0% MDR on your next 100 UPI transactions and ₹100 Soundbox cash rebate.",
-                offer_code="KIRANA_BOOSTER_0MDR",
-                offer_details="0% MDR on next 100 UPI transactions + ₹100 Soundbox rent rebate",
-                status="DELIVERED",
-                handed_off_to=None,
-                delivered_at=now,
-                is_synthetic=True,
-                environment="DEMO",
+        if not db.query(MerchantFollowup).filter_by(id="fol_sharma_revive_01").first():
+            db.add(
+                MerchantFollowup(
+                    id="fol_sharma_revive_01",
+                    tenant_id=tenant.id,
+                    merchant_id="mer_sharma_kirana",
+                    cause_type="COMPETITOR_OR_DISENGAGEMENT",
+                    message_title="Special Kirana Growth Offer from Paytm Saathi",
+                    message_body="Namaste Sharma ji! We noticed a slowdown in your Soundbox announcements recently. To support your shop, we've unlocked the Kirana Booster: 0% MDR on your next 100 UPI transactions and ₹100 Soundbox cash rebate.",
+                    offer_code="KIRANA_BOOSTER_0MDR",
+                    offer_details="0% MDR on next 100 UPI transactions + ₹100 Soundbox rent rebate",
+                    status="DELIVERED",
+                    handed_off_to=None,
+                    delivered_at=now,
+                    is_synthetic=True,
+                    environment="DEMO",
+                )
             )
-        )
 
         # -------------------------------------------------------------
         # Phase 8: Seeded KYC Applications & Incomplete Onboardings
@@ -1250,7 +1255,8 @@ def seed_demo_data():
             ),
         ]
         for d in docs_sharma:
-            db.add(d)
+            if not db.query(MerchantDocument).filter_by(id=d.id).first():
+                db.add(d)
 
         # 2. Gupta Electronics (PAN is BLURRY -> Needs PAN Resubmission)
         docs_gupta = [
@@ -1305,7 +1311,8 @@ def seed_demo_data():
             ),
         ]
         for d in docs_gupta:
-            db.add(d)
+            if not db.query(MerchantDocument).filter_by(id=d.id).first():
+                db.add(d)
 
         # 3. Singh Automobiles (Bank Proof MISSING)
         docs_singh = [
@@ -1357,7 +1364,8 @@ def seed_demo_data():
             ),
         ]
         for d in docs_singh:
-            db.add(d)
+            if not db.query(MerchantDocument).filter_by(id=d.id).first():
+                db.add(d)
 
         # 4. Radhe Krishna Bakery (Shop Front Photo MISSING)
         docs_radhe = [
@@ -1409,7 +1417,8 @@ def seed_demo_data():
             ),
         ]
         for d in docs_radhe:
-            db.add(d)
+            if not db.query(MerchantDocument).filter_by(id=d.id).first():
+                db.add(d)
 
         # 5. Apex Fresh Mart (Full-Pass Candidate: All 3 docs clear, ready for authorized verification step)
         docs_apex = [
@@ -1463,7 +1472,8 @@ def seed_demo_data():
             ),
         ]
         for d in docs_apex:
-            db.add(d)
+            if not db.query(MerchantDocument).filter_by(id=d.id).first():
+                db.add(d)
 
         # -------------------------------------------------------------
         # Phase 9: Seeded Field Sales Rep Visits (FieldMate)
@@ -1561,22 +1571,24 @@ def seed_demo_data():
             ),
         ]
         for v in visits_data:
-            db.add(v)
+            if not db.query(MerchantVisit).filter_by(id=v.id).first():
+                db.add(v)
 
         # Initial audit log
-        audit_event = AuditEvent(
-            id="audit_initial_seed",
-            tenant_id=tenant.id,
-            actor="system_seeder",
-            action="SEED_DEMO_DATA",
-            target="database_tables",
-            policy_decision_id="dec_system_seed",
-            idempotency_key="idemp_seed_phase5",
-            result="SUCCESS",
-            is_synthetic=True,
-            environment="DEMO",
-        )
-        db.add(audit_event)
+        if not db.query(AuditEvent).filter_by(id="audit_initial_seed").first():
+            audit_event = AuditEvent(
+                id="audit_initial_seed",
+                tenant_id=tenant.id,
+                actor="system_seeder",
+                action="SEED_DEMO_DATA",
+                target="database_tables",
+                policy_decision_id="dec_system_seed",
+                idempotency_key="idemp_seed_phase5",
+                result="SUCCESS",
+                is_synthetic=True,
+                environment="DEMO",
+            )
+            db.add(audit_event)
 
         db.commit()
         print("Demo data successfully seeded with Phase 5 device telemetry.")

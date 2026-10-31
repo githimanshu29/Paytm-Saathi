@@ -1430,7 +1430,18 @@ export function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F6] text-xs">
-                      {filteredReviveMerchants.map((m) => (
+                      {filteredReviveMerchants.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-gray-500">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <Activity className="w-8 h-8 text-gray-400 stroke-1" />
+                              <p className="text-xs font-semibold text-gray-700">No merchants found in this revival status</p>
+                              <p className="text-[11px] text-gray-400">All kirana stores are healthy or no records match your filter.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredReviveMerchants.map((m) => (
                         <tr key={m.id} className="hover:bg-blue-50/40 transition-colors">
                           <td className="py-3 px-4">
                             <p className="font-bold text-[#002E6E]">{m.store_name}</p>
@@ -1512,7 +1523,7 @@ export function App() {
                             )}
                           </td>
                         </tr>
-                      ))}
+                      )))}
                     </tbody>
                   </table>
                 </div>
@@ -1539,7 +1550,18 @@ export function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#F3F4F6] text-xs">
-                        {filteredCases.map((c) => (
+                        {filteredCases.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-8 text-center text-gray-500">
+                              <div className="flex flex-col items-center justify-center space-y-1">
+                                <FileText className="w-6 h-6 text-gray-400 stroke-1" />
+                                <p className="text-xs font-semibold text-gray-700">No support cases or tasks found</p>
+                                <p className="text-[10px] text-gray-400">All cases have been addressed in this bucket.</p>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredCases.map((c) => (
                           <tr
                             key={c.id}
                             onClick={() => setSelectedCase(c)}
@@ -1564,7 +1586,7 @@ export function App() {
                               </span>
                             </td>
                           </tr>
-                        ))}
+                        )))}
                       </tbody>
                     </table>
                   </div>
@@ -1741,15 +1763,30 @@ export function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F3F4F6] text-xs">
-                      {(pipelineData?.applications || [])
-                        .filter((app) => {
+                      {(() => {
+                        const filteredApps = (pipelineData?.applications || []).filter((app) => {
                           if (pipelineFilter === 'BLURRY') return app.blurry_documents.length > 0;
                           if (pipelineFilter === 'MISSING') return app.missing_documents.length > 0;
                           if (pipelineFilter === 'READY') return app.can_submit_for_verification;
                           if (pipelineFilter === 'VERIFIED') return app.is_fully_verified;
                           return true;
-                        })
-                        .map((app) => {
+                        });
+
+                        if (filteredApps.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={7} className="py-12 text-center text-gray-500">
+                                <div className="flex flex-col items-center justify-center space-y-2">
+                                  <UserCheck className="w-8 h-8 text-gray-400 stroke-1" />
+                                  <p className="text-xs font-semibold text-gray-700">No onboarding applications found</p>
+                                  <p className="text-[11px] text-gray-400">No merchant KYC records match the selected filter.</p>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filteredApps.map((app) => {
                           const panDoc = app.documents.find((d) => d.document_type === 'PAN_CARD');
                           const bankDoc = app.documents.find((d) => d.document_type === 'BANK_PROOF');
                           const photoDoc = app.documents.find((d) => d.document_type === 'SHOP_PHOTO');
@@ -1869,6 +1906,7 @@ export function App() {
                             </tr>
                           );
                         })}
+                      )()}
                     </tbody>
                   </table>
                 </div>
@@ -2695,8 +2733,19 @@ export function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E5E7EB]">
-                      {(vasooliOverview?.receivables || []).map((rec) => {
-                        const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
+                      {(vasooliOverview?.receivables || []).length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-gray-500">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <Coins className="w-8 h-8 text-gray-400 stroke-1" />
+                              <p className="text-xs font-semibold text-gray-700">No receivables or store credit entries found</p>
+                              <p className="text-[11px] text-gray-400">All customer dues are clear or none have been recorded yet.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        (vasooliOverview?.receivables || []).map((rec) => {
+                          const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
                         const isDisputed = rec.is_disputed;
                         const isRevoked = !rec.contact_permission || rec.permission_status === 'REVOKED';
 
@@ -2790,7 +2839,7 @@ export function App() {
                             </td>
                           </tr>
                         );
-                      })}
+                      }))}
                     </tbody>
                   </table>
                 </div>
@@ -3047,7 +3096,11 @@ export function App() {
 
                 <div className="mt-4 space-y-3 max-h-[500px] overflow-y-auto pr-1">
                   {handoffTimeline.length === 0 ? (
-                    <p className="text-center py-8 text-gray-400 text-xs">No handoff audit records yet. Click "⚡ Run Full 6-Step Chain" above to start.</p>
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-gray-500 space-y-2">
+                      <GitMerge className="w-8 h-8 text-gray-400 stroke-1" />
+                      <p className="text-xs font-semibold text-gray-700">No handoff audit records yet</p>
+                      <p className="text-[11px] text-gray-400">Click &quot;⚡ Run Full 6-Step Chain&quot; above to simulate cross-agent routing.</p>
+                    </div>
                   ) : (
                     handoffTimeline.map((ev) => {
                       const isRevive = ev.actor.includes('revive') || ev.action.includes('REVIVE');
@@ -3216,7 +3269,18 @@ export function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#F3F4F6] text-xs">
-                        {filteredCases.map((c) => (
+                        {filteredCases.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-12 text-center text-gray-500">
+                              <div className="flex flex-col items-center justify-center space-y-2">
+                                <FileText className="w-8 h-8 text-gray-400 stroke-1" />
+                                <p className="text-xs font-semibold text-gray-700">No support cases or tasks found</p>
+                                <p className="text-[11px] text-gray-400">No active cases match the selected status filter.</p>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredCases.map((c) => (
                           <tr
                             key={c.id}
                             onClick={() => setSelectedCase(c)}
@@ -3259,7 +3323,7 @@ export function App() {
                               </span>
                             </td>
                           </tr>
-                        ))}
+                        )))}
                       </tbody>
                     </table>
                   </div>

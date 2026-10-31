@@ -1125,23 +1125,31 @@ export default function App() {
 
               {/* Transactions List */}
               <View style={styles.txListContainer}>
-                {(summary?.payments.recent_transactions || []).map((tx) => (
-                  <View key={tx.id} style={styles.txRow}>
-                    <View style={styles.txIconCircle}>
-                      <Text style={styles.txIconText}>₹</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.txCustomerName}>{tx.customer_name}</Text>
-                      <Text style={styles.txMetaText}>
-                        {tx.payment_rail} · {tx.created_at}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.txAmountText}>{tx.amount_formatted}</Text>
-                      <StatusChipNative status="verified" size="sm" label="Success" />
-                    </View>
+                {(summary?.payments.recent_transactions || []).length === 0 ? (
+                  <View style={styles.emptyStateContainer}>
+                    <Text style={styles.emptyStateIcon}>💳</Text>
+                    <Text style={styles.emptyStateTitle}>No transactions recorded today</Text>
+                    <Text style={styles.emptyStateSubtitle}>Incoming payments will appear here in real time.</Text>
                   </View>
-                ))}
+                ) : (
+                  (summary?.payments.recent_transactions || []).map((tx) => (
+                    <View key={tx.id} style={styles.txRow}>
+                      <View style={styles.txIconCircle}>
+                        <Text style={styles.txIconText}>₹</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.txCustomerName}>{tx.customer_name}</Text>
+                        <Text style={styles.txMetaText}>
+                          {tx.payment_rail} · {tx.created_at}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.txAmountText}>{tx.amount_formatted}</Text>
+                        <StatusChipNative status="verified" size="sm" label="Success" />
+                      </View>
+                    </View>
+                  ))
+                )}
               </View>
             </View>
 
@@ -1177,45 +1185,53 @@ export default function App() {
 
               {/* Dues List */}
               <View style={styles.txListContainer}>
-                {(summary?.dues.receivables || []).map((rec) => {
-                  const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
-                  const isDisputed = (rec as any).is_disputed;
-                  return (
-                    <View key={rec.id} style={styles.txRow}>
-                      <View style={[styles.txIconCircle, { backgroundColor: '#FEF5EC' }]}>
-                        <Text style={[styles.txIconText, { color: colors.warning }]}>📒</Text>
+                {(summary?.dues.receivables || []).length === 0 ? (
+                  <View style={styles.emptyStateContainer}>
+                    <Text style={styles.emptyStateIcon}>📒</Text>
+                    <Text style={styles.emptyStateTitle}>No pending store credit records</Text>
+                    <Text style={styles.emptyStateSubtitle}>All customer udhaar accounts are fully settled.</Text>
+                  </View>
+                ) : (
+                  (summary?.dues.receivables || []).map((rec) => {
+                    const isPaid = rec.status === 'PAID' || rec.status === 'VERIFIED_PAID';
+                    const isDisputed = (rec as any).is_disputed;
+                    return (
+                      <View key={rec.id} style={styles.txRow}>
+                        <View style={[styles.txIconCircle, { backgroundColor: '#FEF5EC' }]}>
+                          <Text style={[styles.txIconText, { color: colors.warning }]}>📒</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.txCustomerName}>{rec.customer_name}</Text>
+                          <Text style={styles.txMetaText}>
+                            Due: {rec.due_date || '7 days'} · Consensual Udhaar
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={[styles.txAmountText, { color: isPaid ? colors.success : colors.warning }]}>
+                            {rec.amount_formatted}
+                          </Text>
+                          <StatusChipNative
+                            status={
+                              isPaid
+                                ? 'executed'
+                                : isDisputed
+                                ? 'needs_human'
+                                : 'awaiting_approval'
+                            }
+                            size="sm"
+                            label={
+                              isPaid
+                                ? 'Paid'
+                                : isDisputed
+                                ? 'Disputed'
+                                : 'Pending'
+                            }
+                          />
+                        </View>
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.txCustomerName}>{rec.customer_name}</Text>
-                        <Text style={styles.txMetaText}>
-                          Due: {rec.due_date || '7 days'} · Consensual Udhaar
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[styles.txAmountText, { color: isPaid ? colors.success : colors.warning }]}>
-                          {rec.amount_formatted}
-                        </Text>
-                        <StatusChipNative
-                          status={
-                            isPaid
-                              ? 'executed'
-                              : isDisputed
-                              ? 'needs_human'
-                              : 'awaiting_approval'
-                          }
-                          size="sm"
-                          label={
-                            isPaid
-                              ? 'Paid'
-                              : isDisputed
-                              ? 'Disputed'
-                              : 'Pending'
-                          }
-                        />
-                      </View>
-                    </View>
-                  );
-                })}
+                    );
+                  })
+                )}
               </View>
 
               <TouchableOpacity
@@ -2557,6 +2573,27 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
     marginTop: spacing.sm,
+  },
+  emptyStateContainer: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  emptyStateTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  emptyStateSubtitle: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
+    paddingHorizontal: 16,
   },
   friendlyErrorCard: {
     backgroundColor: '#FEF2F2',

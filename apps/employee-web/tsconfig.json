@@ -14,7 +14,11 @@
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@paytm-saathi/design-tokens": ["../../packages/design-tokens/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/design-tokens/src"]
 }
